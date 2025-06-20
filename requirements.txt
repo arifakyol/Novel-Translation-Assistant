@@ -1,9 +1,21 @@
-re>=2.2.1
-time>=0.0.0
-langdetect>=1.0.9
-google-generativeai>=0.3.2
+# Core dependencies
 python-dotenv>=1.0.0
 json5>=0.9.14
+
+# AI/ML libraries
+google-generativeai>=0.3.2
 openai>=1.12.0
-tkinter>=8.6
-typing>=3.7.4.3
+
+# Language detection
+langdetect>=1.0.9
+
+# GUI framework (usually comes with Python, but listed for completeness)
+# tkinter is part of Python standard library
+
+# Note: The following are part of Python standard library and don't need to be installed:
+# - re (regular expressions)
+# - time
+# - typing
+# - os
+# - threading
+# - json (replaced by json5 in this project)

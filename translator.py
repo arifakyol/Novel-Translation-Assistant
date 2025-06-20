@@ -18,6 +18,7 @@ class NovelTranslator:
         self.ai_model = os.getenv("AI_MODEL", "gemini").lower() # Default to gemini if not set
         self.gemini_api_key = os.getenv("GEMINI_API_KEY")
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.allowed_model = os.getenv("ALLOWED_MODEL", None)
 
         # Stil rehberi başlangıç değerleri kaldırılıyor, AI tarafından oluşturulacak
         self.style_guide = {
@@ -34,200 +35,11 @@ class NovelTranslator:
         self.model = None # Model değişkenini burada tanımla
         self._setup_ai_model()
         
-        # Store prompts for editing
-        self.initial_prompt = """RESPONSE FORMAT (STRICT):
-- Your output MUST INCLUDE ONLY the translated text.
-- DO NOT add greetings, summaries, explanations, markdown, or formatting.
-- DO NOT include section titles, genre names, character info, or style guide notes.
-- The output must be a single, continuous, plain translation.
-- DO NOT DEVIATE from this rule.
-
-TASK:
-You are a professional literary translator. Translate the following {section_type} from {source_language} into {target_language} for readers in {target_country}.
-
-Focus on:
-- Preserving the original **tone**, **style**, and **emotional impact**.
-- Ensuring **genre-appropriate phrasing** and **character consistency**.
-
-SOURCE TEXT (in {source_language}):
-{original_section_text}
-
-CONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:
-Source Language: {source_language}
-Target Language: {target_language}
-Target Country: {target_country}
-Genre: {genre}
-Character Info:
-{formatted_characters_for_prompt}
-Cultural Context:
-{formatted_cultural_context_for_prompt}
-Main Themes and Motifs:
-{formatted_themes_motifs_for_prompt}
-Setting and Atmosphere:
-{formatted_setting_atmosphere_for_prompt}
-Style Guide:
-{style_guide_text}
-
-⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT. 
-YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE TRANSLATION AND END WITH THE LAST WORD OF THE TRANSLATION. 
-
----BEGIN TRANSLATED TEXT---"""
-        
-        self.line_edit_prompt = """RESPONSE FORMAT (STRICT):
-- Your output MUST CONTAIN ONLY the edited text.
-- DO NOT include explanations, greetings, summaries, markdown, metadata, or any other additional content.
-- The output must be a single, clean, continuous edited version of the input translation.
-- DO NOT DEVIATE from these instructions under any circumstances.
-
-TASK:
-You are a professional line editor for literary fiction. Refine the translated text below, which was translated from {source_language} into {target_language}, for readers in {target_country}.
-
-Focus on improving:
-- Flow and sentence rhythm
-- Readability and clarity
-- Grammar and punctuation
-
-While preserving:
-- The original meaning
-- Literary tone and atmosphere
-- Character voice and emotional consistency
-- Conformity with the provided style guide
-
-REFERENCE TEXT (DO NOT OUTPUT):
-{original_section_text}
-
-TEXT TO EDIT:
-{initial_translation}
-
-CONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:
-Source Language: {source_language}
-Target Language: {target_language}
-Target Country: {target_country}
-Genre: {genre}
-Key Characters:
-{formatted_characters_for_prompt}
-Cultural Context:
-{formatted_cultural_context_for_prompt}
-Main Themes and Motifs:
-{formatted_themes_motifs_for_prompt}
-Setting and Atmosphere:
-{formatted_setting_atmosphere_for_prompt}
-Style Guide:
-{style_guide_text}
-
-⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT.
-YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE EDITED TEXT AND END WITH THE LAST WORD OF THE EDITED TEXT.
-
----BEGIN EDITED TEXT---"""
-        
-        self.cultural_prompt = """RESPONSE FORMAT (STRICT):
-- Your output MUST CONTAIN ONLY the culturally localized text.
-- DO NOT include introductions, explanations, greetings, summaries, markdown, or any other content.
-- DO NOT DEVIATE from these instructions under any circumstances.
-
-TASK:
-You are a professional expert in cultural adaptation for literary fiction. Adapt the following translated text, which was translated from {source_language} into {target_language}, so that it feels natural, relatable, and resonant for {target_language} readers in {target_country} — while preserving the original cultural identity, context, and emotional authenticity.
-
-Make minimal, necessary adjustments:
-- Clarify or adapt culturally specific references, idioms, or names only if comprehension would otherwise be hindered.
-- Avoid over-domestication, excessive Anglicization or Americanization unless essential for clarity.
-- Do not Westernize the text unless the original intent requires it.
-
-Preserve:
-- Narrative structure and flow
-- Original intent and message
-- Character voice and emotional tone
-- Literary and stylistic consistency per the provided style guide
-
-REFERENCE TEXT (DO NOT OUTPUT):
-{original_section_text}
-
-TEXT TO LOCALIZE:
-{line_edited}
-
-CONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:
-Source Language: {source_language}
-Target Language: {target_language}
-Target Country: {target_country}
-Genre: {genre}
-Key Characters:
-{formatted_characters_for_prompt}
-Cultural Context:
-{formatted_cultural_context_for_prompt}
-Main Themes and Motifs:
-{formatted_themes_motifs_for_prompt}
-Setting and Atmosphere:
-{formatted_setting_atmosphere_for_prompt}
-Style Guide:
-{style_guide_text}
-
-⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT.
-YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE LOCALIZED TEXT AND END WITH THE LAST WORD OF THE LOCALIZED TEXT.
-
----BEGIN LOCALIZED TEXT---"""
-        
-    def _setup_ai_model(self):
-        """
-        Setup the selected AI model (Gemini or ChatGPT)
-        """
-        if self.ai_model == "gemini":
-            self._setup_gemini()
-        elif self.ai_model == "chatgpt":
-            self._setup_openai()
-        else:
-            raise ValueError(f"Unsupported AI model: {self.ai_model}. Choose 'gemini' or 'chatgpt'.")
-
-    def _setup_gemini(self):
-        """
-        Setup Gemini API with the provided API key
-        """
-        if not self.gemini_api_key:
-            raise ValueError("GEMINI_API_KEY not found in environment variables.")
-
-        genai.configure(api_key=self.gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash-latest') # Use a more recent model
-        
-        # Güvenlik ayarlarını tanımla: Tüm kategoriler için engellemeyi devre dışı bırak
-        self.safety_settings = {
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-        }
-        print("DEBUG: Gemini model setup complete.")
-
-    def _setup_openai(self):
-        """
-        Setup OpenAI API with the provided API key
-        """
-        if not self.openai_api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment variables.")
-
-        openai.api_key = self.openai_api_key
-        self.model = "gpt-4o-mini" # Use a suitable OpenAI model
-        print("DEBUG: OpenAI model setup complete.")
-
-    def set_initial_character_info(self, characters_str):
-        """
-        Bu metot artık kullanılmayacak, karakter bilgileri doğrudan AI analizinden gelecek.
-        """
-        pass
-
-    def generate_style_guide_with_ai(self, genre: str, characters_data: Dict[str, Any], cultural_context_data: Dict[str, Any], main_themes_data: Dict[str, Any], setting_atmosphere_data: Dict[str, Any], source_language: str, target_language: str, target_country: str, progress_callback=None, max_retries: int = 3, retry_delay: int = 5):
-        """
-        NovelAnalyzer'dan gelen verileri kullanarak stil rehberinin ilk taslağını yapay zeka ile oluşturur.
-        Hata durumunda belirtilen sayıda yeniden deneme yapar.
-        """
-        if progress_callback: progress_callback("Stil Rehberi AI ile oluşturuluyor...\n")
-        print("DEBUG: generate_style_guide_with_ai called for initial draft.")
-
-        formatted_characters = self._format_characters_for_prompt(characters_data)
-        formatted_cultural_context = self._format_cultural_context_for_prompt(cultural_context_data)
-        formatted_themes_motifs = self._format_themes_motifs_for_prompt(main_themes_data)
-        formatted_setting_atmosphere = self._format_setting_atmosphere_for_prompt(setting_atmosphere_data)
-
-        prompt = f"""
-Sen profesyonel bir edebi çevirmensin. Aşağıdaki roman analizi verilerine dayanarak, {source_language} dilinden {target_language} diline, {target_country} ülkesindeki okuyucular için bu romanın çevirisi için kapsamlı bir stil rehberi oluştur. Bu, çeviri sürecinin başlangıcında oluşturulan ilk taslak stil rehberidir.
+        # Default promptları sakla
+        self.default_initial_prompt = """RESPONSE FORMAT (STRICT):\n- Your output MUST INCLUDE ONLY the translated text.\n- DO NOT add greetings, summaries, explanations, markdown, or formatting.\n- DO NOT include section titles, genre names, character info, or style guide notes.\n- The output must be a single, continuous, plain translation.\n- DO NOT DEVIATE from this rule.\n\nTASK:\nYou are a professional literary translator. Translate the following {section_type} from {source_language} into {target_language} for readers in {target_country}.\n\nFocus on:\n- Preserving the original **tone**, **style**, and **emotional impact**.\n- Ensuring **genre-appropriate phrasing** and **character consistency**.\n\nSOURCE TEXT (in {source_language}):\n{original_section_text}\n\nCONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:\nSource Language: {source_language}\nTarget Language: {target_language}\nTarget Country: {target_country}\nGenre: {genre}\nCharacter Info:\n{formatted_characters_for_prompt}\nCultural Context:\n{formatted_cultural_context_for_prompt}\nMain Themes and Motifs:\n{formatted_themes_motifs_for_prompt}\nSetting and Atmosphere:\n{formatted_setting_atmosphere_for_prompt}\nStyle Guide:\n{style_guide_text}\n\n⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT. \nYOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE TRANSLATION AND END WITH THE LAST WORD OF THE TRANSLATION. \n\n---BEGIN TRANSLATED TEXT---"""
+        self.default_line_edit_prompt = """RESPONSE FORMAT (STRICT):\n- Your output MUST CONTAIN ONLY the edited text.\n- DO NOT include explanations, greetings, summaries, markdown, metadata, or any other additional content.\n- The output must be a single, clean, continuous edited version of the input translation.\n- DO NOT DEVIATE from these instructions under any circumstances.\n\nTASK:\nYou are a professional line editor for literary fiction. Refine the translated text below, which was translated from {source_language} into {target_language}, for readers in {target_country}.\n\nFocus on improving:\n- Flow and sentence rhythm\n- Readability and clarity\n- Grammar and punctuation\n\nWhile preserving:\n- The original meaning\n- Literary tone and atmosphere\n- Character voice and emotional consistency\n- Conformity with the provided style guide\n\nREFERENCE TEXT (DO NOT OUTPUT):\n{original_section_text}\n\nTEXT TO EDIT:\n{initial_translation}\n\nCONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:\nSource Language: {source_language}\nTarget Language: {target_language}\nTarget Country: {target_country}\nGenre: {genre}\nKey Characters:\n{formatted_characters_for_prompt}\nCultural Context:\n{formatted_cultural_context_for_prompt}\nMain Themes and Motifs:\n{formatted_themes_motifs_for_prompt}\nSetting and Atmosphere:\n{formatted_setting_atmosphere_for_prompt}\nStyle Guide:\n{style_guide_text}\n\n⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT.\nYOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE EDITED TEXT AND END WITH THE LAST WORD OF THE EDITED TEXT.\n\n---BEGIN EDITED TEXT---"""
+        self.default_cultural_prompt = """RESPONSE FORMAT (STRICT):\n- Your output MUST CONTAIN ONLY the culturally localized text.\n- DO NOT include introductions, explanations, greetings, summaries, markdown, or any other content.\n- DO NOT DEVIATE from these instructions under any circumstances.\n\nTASK:\nYou are a professional expert in cultural adaptation for literary fiction. Adapt the following translated text, which was translated from {source_language} into {target_language}, so that it feels natural, relatable, and resonant for {target_language} readers in {target_country} — while preserving the original cultural identity, context, and emotional authenticity.\n\nMake minimal, necessary adjustments:\n- Clarify or adapt culturally specific references, idioms, or names only if comprehension would otherwise be hindered.\n- Avoid over-domestication, excessive Anglicization or Americanization unless essential for clarity.\n- Do not Westernize the text unless the original intent requires it.\n\nPreserve:\n- Narrative structure and flow\n- Original intent and message\n- Character voice and emotional tone\n- Literary and stylistic consistency per the provided style guide\n\nREFERENCE TEXT (DO NOT OUTPUT):\n{original_section_text}\n\nTEXT TO LOCALIZE:\n{line_edited}\n\nCONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:\nSource Language: {source_language}\nTarget Language: {target_language}\nTarget Country: {target_country}\nGenre: {genre}\nKey Characters:\n{formatted_characters_for_prompt}\nCultural Context:\n{formatted_cultural_context_for_prompt}\nMain Themes and Motifs:\n{formatted_themes_motifs_for_prompt}\nSetting and Atmosphere:\n{formatted_setting_atmosphere_for_prompt}\nStyle Guide:\n{style_guide_text}\n\n⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT.\nYOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE LOCALIZED TEXT AND END WITH THE LAST WORD OF THE LOCALIZED TEXT.\n\n---BEGIN LOCALIZED TEXT---"""
+        self.default_style_guide_generation_prompt = """Sen profesyonel bir edebi çevirmensin. Aşağıdaki roman analizi verilerine dayanarak, {source_language} dilinden {target_language} diline, {target_country} ülkesindeki okuyucular için bu romanın çevirisi için kapsamlı bir stil rehberi oluştur. Bu, çeviri sürecinin başlangıcında oluşturulan ilk taslak stil rehberidir.
 
 Stil rehberi, çevirinin tutarlılığını ve kalitesini sağlamak için kullanılacaktır. Özellikle aşağıdaki alanlara odaklan:
 - Genel Ton (örneğin, resmi, samimi, epik, mizahi, kasvetli)
@@ -281,6 +93,163 @@ Ana Temalar ve Motifler:
 Ortam ve Atmosfer:
 {formatted_setting_atmosphere}
 """
+        self.default_style_guide_update_prompt = """Sen profesyonel bir edebi çevirmensin. Amacın, {source_language} dilinden {target_language} diline, {target_country} ülkesindeki okuyucular için çevirinin mümkün olduğunca doğal, akıcı ve kültürel olarak uygun gelmesini sağlamaktır. Aşağıdaki orijinal metin ve onun çevirisi ile birlikte mevcut stil rehberini incele. Bu bilgilere dayanarak, stil rehberini daha da geliştir ve güncelle. Özellikle karakter sesleri, tutarlı terimler, kültürel referanslar ve genel ton/stil gibi alanlara odaklan.
+
+**Önemli Not: Tutarlı Terimler ve Kültürel Referanslar için, sadece birebir çeviri veya orijinalini koruma yerine, hedef dildeki en doğal, kültürel olarak eşdeğer veya açıklayıcı yaklaşımları belirle.** Örneğin, bir rütbe veya unvan için hedef dildeki en yakın ve anlaşılır karşılığı bul, veya bir kültürel öğe için kısa bir açıklama veya adaptasyon öner.
+
+Lütfen yalnızca güncellenmiş stil rehberini aşağıdaki JSON formatında bir nesne olarak yanıt ver. Başka açıklama ekleme:
+
+{{
+  "tone": "Genel roman tonu",
+  "dialogue_style": "Diyalogların genel stili",
+  "description_style": "Açıklamaların genel stili",
+  "thought_style": "Düşüncelerin genel stili",
+  "character_voices": {{
+    "Karakter Adı 1": {{
+      "formality": "resmi/samimi/nötr",
+      "vocabulary": "geniş/sınırlı/argo",
+      "speech_patterns": ["kısa cümleler", "uzun betimlemeler", "alaycı ton"]
+    }},
+    "Karakter Adı 2": {{
+      "formality": "resmi/samimi/nötr",
+      "vocabulary": "geniş/sınırlı/argo",
+      "speech_patterns": ["kısa cümleler", "uzun betimlemeler", "alaycı ton"]
+    }}
+  }},
+  "consistent_terms": {{
+    "Orijinal Terim 1": "Çevrilmiş Terim 1 (Hedef dildeki en doğal ve anlaşılır karşılığı, gerekirse kısa açıklama)",
+    "Orijinal Terim 2": "Çevrilmiş Terim 2 (Hedef dildeki en doğal ve anlaşılır karşılığı, gerekirse kısa açıklama)"
+  }},
+  "cultural_references": {{
+    "Orijinal Referans 1": "Çevirideki Yaklaşım/Açıklama (Hedef kültüre nasıl uyarlanmalı veya açıklanmalı)",
+    "Orijinal Referans 2": "Çevirideki Yaklaşım/Açıklama (Hedef kültüre nasıl uyarlanmalı veya açıklanmalı)"
+  }}
+}}
+
+MEVCUT STİL REHBERİ:
+{current_style_guide_json}
+
+ROMAN ANALİZİ VERİLERİ:
+Kaynak Dil: {source_language}
+Hedef Dil: {target_language}
+Hedef Ülke: {target_country}
+Tür: {genre}
+Karakter Bilgisi:
+{formatted_characters}
+Kültürel Bağlam:
+{formatted_cultural_context}
+Ana Temalar ve Motifler:
+{formatted_themes_motifs}
+Ortam ve Atmosfer:
+{formatted_setting_atmosphere}
+
+ORİJİNAL METİN:
+{original_text}
+
+ÇEVRİLEN METİN:
+{translated_text}
+"""
+        self.initial_prompt = self.default_initial_prompt
+        self.line_edit_prompt = self.default_line_edit_prompt
+        self.cultural_prompt = self.default_cultural_prompt
+        self.style_guide_generation_prompt = self.default_style_guide_generation_prompt
+        self.style_guide_update_prompt = self.default_style_guide_update_prompt
+
+        self.default_back_translation_prompt = f"""RESPONSE FORMAT (STRICT):
+- Your output MUST INCLUDE ONLY the back-translated text.
+- DO NOT add greetings, summaries, explanations, markdown, or formatting.
+- DO NOT include section titles, genre names, character info, or style guide notes.
+- The output must be a single, continuous, plain back-translation.
+- DO NOT DEVIATE from this rule.
+
+TASK:
+You are a professional literary translator. Back-translate the following text from {{target_language}} into {{source_language}}. This is for quality control purposes to ensure the original meaning is preserved.
+
+Focus on:
+- Preserving the original meaning and intent
+- Maintaining the same tone and style as the original
+- Ensuring accuracy in the back-translation
+
+SOURCE TEXT (in {{target_language}}):
+{{translated_text}}
+
+⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT. 
+YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WITH THE LAST WORD OF THE BACK-TRANSLATION. 
+
+---BEGIN BACK-TRANSLATED TEXT---"""
+        self.back_translation_prompt = self.default_back_translation_prompt
+        
+    def _setup_ai_model(self):
+        """
+        Setup the selected AI model (Gemini or ChatGPT)
+        """
+        if self.ai_model == "gemini":
+            self._setup_gemini()
+        elif self.ai_model == "chatgpt":
+            self._setup_openai()
+        else:
+            raise ValueError(f"Unsupported AI model: {self.ai_model}. Choose 'gemini' or 'chatgpt'.")
+
+    def _setup_gemini(self):
+        """
+        Setup Gemini API with the provided API key
+        """
+        if not self.gemini_api_key:
+            raise ValueError("GEMINI_API_KEY not found in environment variables.")
+
+        genai.configure(api_key=self.gemini_api_key)
+        model_name = self.allowed_model if (self.allowed_model and self.ai_model == "gemini") else "gemini-1.5-flash-latest"
+        self.model = genai.GenerativeModel(model_name)
+        # Güvenlik ayarlarını tanımla: Tüm kategoriler için engellemeyi devre dışı bırak
+        self.safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
+        print(f"DEBUG: Gemini model setup complete. Using model: {model_name}")
+
+    def _setup_openai(self):
+        """
+        Setup OpenAI API with the provided API key
+        """
+        if not self.openai_api_key:
+            raise ValueError("OPENAI_API_KEY not found in environment variables.")
+
+        openai.api_key = self.openai_api_key
+        model_name = self.allowed_model if (self.allowed_model and self.ai_model == "chatgpt") else "gpt-4o-mini"
+        self.model = model_name
+        print(f"DEBUG: OpenAI model setup complete. Using model: {model_name}")
+
+    def set_initial_character_info(self, characters_str):
+        """
+        Bu metot artık kullanılmayacak, karakter bilgileri doğrudan AI analizinden gelecek.
+        """
+        pass
+
+    def generate_style_guide_with_ai(self, genre: str, characters_data: Dict[str, Any], cultural_context_data: Dict[str, Any], main_themes_data: Dict[str, Any], setting_atmosphere_data: Dict[str, Any], source_language: str, target_language: str, target_country: str, progress_callback=None, max_retries: int = 3, retry_delay: int = 5):
+        """
+        NovelAnalyzer'dan gelen verileri kullanarak stil rehberinin ilk taslağını yapay zeka ile oluşturur.
+        Hata durumunda belirtilen sayıda yeniden deneme yapar.
+        """
+        if progress_callback: progress_callback("Stil Rehberi AI ile oluşturuluyor...\n")
+        print("DEBUG: generate_style_guide_with_ai called for initial draft.")
+
+        formatted_characters = self._format_characters_for_prompt(characters_data)
+        formatted_cultural_context = self._format_cultural_context_for_prompt(cultural_context_data)
+        formatted_themes_motifs = self._format_themes_motifs_for_prompt(main_themes_data)
+        formatted_setting_atmosphere = self._format_setting_atmosphere_for_prompt(setting_atmosphere_data)
+
+        prompt = self.style_guide_generation_prompt.format(
+            source_language=source_language,
+            target_language=target_language,
+            target_country=target_country,
+            genre=genre,
+            formatted_characters=formatted_characters,
+            formatted_cultural_context=formatted_cultural_context,
+            formatted_themes_motifs=formatted_themes_motifs,
+            formatted_setting_atmosphere=formatted_setting_atmosphere
+        )
         for attempt in range(max_retries):
             try:
                 if progress_callback: progress_callback(f"  - Stil Rehberi oluşturuluyor (Deneme {attempt + 1}/{max_retries})...\n")
@@ -373,63 +342,19 @@ Ortam ve Atmosfer:
         formatted_themes_motifs = self._format_themes_motifs_for_prompt(main_themes_data)
         formatted_setting_atmosphere = self._format_setting_atmosphere_for_prompt(setting_atmosphere_data)
 
-        prompt = f"""
-Sen profesyonel bir edebi çevirmensin. Amacın, {source_language} dilinden {target_language} diline, {target_country} ülkesindeki okuyucular için çevirinin mümkün olduğunca doğal, akıcı ve kültürel olarak uygun gelmesini sağlamaktır. Aşağıdaki orijinal metin ve onun çevirisi ile birlikte mevcut stil rehberini incele. Bu bilgilere dayanarak, stil rehberini daha da geliştir ve güncelle. Özellikle karakter sesleri, tutarlı terimler, kültürel referanslar ve genel ton/stil gibi alanlara odaklan.
-
-**Önemli Not: Tutarlı Terimler ve Kültürel Referanslar için, sadece birebir çeviri veya orijinalini koruma yerine, hedef dildeki en doğal, kültürel olarak eşdeğer veya açıklayıcı yaklaşımları belirle.** Örneğin, bir rütbe veya unvan için hedef dildeki en yakın ve anlaşılır karşılığı bul, veya bir kültürel öğe için kısa bir açıklama veya adaptasyon öner.
-
-Lütfen yalnızca güncellenmiş stil rehberini aşağıdaki JSON formatında bir nesne olarak yanıt ver. Başka açıklama ekleme:
-
-{{
-  "tone": "Genel roman tonu",
-  "dialogue_style": "Diyalogların genel stili",
-  "description_style": "Açıklamaların genel stili",
-  "thought_style": "Düşüncelerin genel stili",
-  "character_voices": {{
-    "Karakter Adı 1": {{
-      "formality": "resmi/samimi/nötr",
-      "vocabulary": "geniş/sınırlı/argo",
-      "speech_patterns": ["kısa cümleler", "uzun betimlemeler", "alaycı ton"]
-    }},
-    "Karakter Adı 2": {{
-      "formality": "resmi/samimi/nötr",
-      "vocabulary": "geniş/sınırlı/argo",
-      "speech_patterns": ["kısa cümleler", "uzun betimlemeler", "alaycı ton"]
-    }}
-  }},
-  "consistent_terms": {{
-    "Orijinal Terim 1": "Çevrilmiş Terim 1 (Hedef dildeki en doğal ve anlaşılır karşılığı, gerekirse kısa açıklama)",
-    "Orijinal Terim 2": "Çevrilmiş Terim 2 (Hedef dildeki en doğal ve anlaşılır karşılığı, gerekirse kısa açıklama)"
-  }},
-  "cultural_references": {{
-    "Orijinal Referans 1": "Çevirideki Yaklaşım/Açıklama (Hedef kültüre nasıl uyarlanmalı veya açıklanmalı)",
-    "Orijinal Referans 2": "Çevirideki Yaklaşım/Açıklama (Hedef kültüre nasıl uyarlanmalı veya açıklanmalı)"
-  }}
-}}
-
-MEVCUT STİL REHBERİ:
-{current_style_guide_json}
-
-ROMAN ANALİZİ VERİLERİ:
-Kaynak Dil: {source_language}
-Hedef Dil: {target_language}
-Hedef Ülke: {target_country}
-Tür: {genre}
-Karakter Bilgisi:
-{formatted_characters}
-Kültürel Bağlam:
-{formatted_cultural_context}
-Ana Temalar ve Motifler:
-{formatted_themes_motifs}
-Ortam ve Atmosfer:
-{formatted_setting_atmosphere}
-
-ORİJİNAL METİN:
-{original_text}
-
-ÇEVRİLEN METİN:
-{translated_text}
-"""
+        prompt = self.style_guide_update_prompt.format(
+            source_language=source_language,
+            target_language=target_language,
+            target_country=target_country,
+            genre=genre,
+            formatted_characters=formatted_characters,
+            formatted_cultural_context=formatted_cultural_context,
+            formatted_themes_motifs=formatted_themes_motifs,
+            formatted_setting_atmosphere=formatted_setting_atmosphere,
+            current_style_guide_json=current_style_guide_json,
+            original_text=original_text,
+            translated_text=translated_text
+        )
         for attempt in range(max_retries):
             try:
                 if progress_callback: progress_callback(f"  - Stil Rehberi güncelleniyor (Deneme {attempt + 1}/{max_retries})...\n")
@@ -554,7 +479,7 @@ ORİJİNAL METİN:
         if self.style_guide["character_voices"]:
             style_guide_text += "\nCharacter Voices:\n"
             for char, voice in self.style_guide["character_voices"].items():
-                speech_patterns = ", ".join(voice.get("speech_patterns", []))
+                speech_patterns = ", ".join(voice.get("speech_patterns", []) if isinstance(voice.get("speech_patterns"), list) else [])
                 formality = voice.get("formality", "nötr")
                 vocabulary = voice.get("vocabulary", "standart")
                 style_guide_text += f"- {char}: Resmiyet: {formality}, Kelime Dağarcığı: {vocabulary}, Konuşma Tarzı: [{speech_patterns}]\n"
@@ -739,13 +664,13 @@ ORİJİNAL METİN:
         formatted_list = []
         for char_name, details in characters_data.items():
             role = details.get("role", "Bilinmiyor")
-            personality = ", ".join(details.get("personality", []))
-            emotions = ", ".join(details.get("emotions", []))
-            speech_style = ", ".join(details.get("speech_style", []))
+            personality = ", ".join(details.get("personality") if isinstance(details.get("personality"), list) else [])
+            emotions = ", ".join(details.get("emotions") if isinstance(details.get("emotions"), list) else [])
+            speech_style = ", ".join(details.get("speech_style") if isinstance(details.get("speech_style"), list) else [])
             occupation = details.get("occupation", "")
             nickname = details.get("nickname", "")
             motivation = details.get("motivation", "")
-            conflicts = ", ".join(details.get("conflicts", []))
+            conflicts = ", ".join(details.get("conflicts") if isinstance(details.get("conflicts"), list) else [])
             arc_type = details.get("arc_type", "Klasik")
 
             char_str = f"- İsim: {char_name}, Rol: {role}"
@@ -761,23 +686,23 @@ ORİJİNAL METİN:
             # İlişkileri ekle
             relationships = details.get("relationships", {})
             rel_parts = []
-            if relationships.get("friends"): rel_parts.append(f"Arkadaşlar: {', '.join(relationships['friends'])}")
-            if relationships.get("enemies"): rel_parts.append(f"Düşmanlar: {', '.join(relationships['enemies'])}")
-            if relationships.get("family"): rel_parts.append(f"Aile: {', '.join(relationships['family'])}")
-            if relationships.get("romantic"): rel_parts.append(f"Romantik: {', '.join(relationships['romantic'])}")
+            if isinstance(relationships.get("friends"), list) and relationships.get("friends"): rel_parts.append(f"Arkadaşlar: {', '.join(relationships['friends'])}")
+            if isinstance(relationships.get("enemies"), list) and relationships.get("enemies"): rel_parts.append(f"Düşmanlar: {', '.join(relationships['enemies'])}")
+            if isinstance(relationships.get("family"), list) and relationships.get("family"): rel_parts.append(f"Aile: {', '.join(relationships['family'])}")
+            if isinstance(relationships.get("romantic"), list) and relationships.get("romantic"): rel_parts.append(f"Romantik: {', '.join(relationships['romantic'])}")
             if rel_parts: char_str += f", İlişkiler: ({'; '.join(rel_parts)})"
 
             # Gelişimi ekle
             development = details.get("development", {})
             dev_parts = []
-            if development.get("beginning"): dev_parts.append(f"Başlangıç: {', '.join(development['beginning'])}")
-            if development.get("middle"): dev_parts.append(f"Orta: {', '.join(development['middle'])}")
-            if development.get("end"): dev_parts.append(f"Son: {', '.join(development['end'])}")
+            if isinstance(development.get("beginning"), list) and development.get("beginning"): dev_parts.append(f"Başlangıç: {', '.join(development['beginning'])}")
+            if isinstance(development.get("middle"), list) and development.get("middle"): dev_parts.append(f"Orta: {', '.join(development['middle'])}")
+            if isinstance(development.get("end"), list) and development.get("end"): dev_parts.append(f"Son: {', '.join(development['end'])}")
             if dev_parts: char_str += f", Gelişim: ({'; '.join(dev_parts)})"
 
             # Anahtar diyaloglar ve düşünceler
-            key_dialogues = details.get("key_dialogues", [])
-            key_thoughts = details.get("key_thoughts", [])
+            key_dialogues = details.get("key_dialogues") if isinstance(details.get("key_dialogues"), list) else []
+            key_thoughts = details.get("key_thoughts") if isinstance(details.get("key_thoughts"), list) else []
             if key_dialogues: char_str += f", Diyalog Örnekleri: [{'; '.join(key_dialogues)}]"
             if key_thoughts: char_str += f", Düşünce Örnekleri: [{'; '.join(key_thoughts)}]"
 
@@ -795,7 +720,7 @@ ORİJİNAL METİN:
         formatted_list = []
         for key, value in cultural_context_data.items():
             if isinstance(value, list):
-                formatted_list.append(f"{key.replace('_', ' ').title()}: {', '.join(value)}")
+                formatted_list.append(f"{key.replace('_', ' ').title()}: {', '.join(value if isinstance(value, list) else [])}")
             else:
                 formatted_list.append(f"{key.replace('_', ' ').title()}: {value}")
         return "\n".join(formatted_list)
@@ -808,10 +733,10 @@ ORİJİNAL METİN:
             return "Temalar ve motifler bilgisi mevcut değil."
 
         formatted_list = []
-        if themes_motifs_data.get("main_themes"): formatted_list.append(f"Ana Temalar: {', '.join(themes_motifs_data['main_themes'])}")
-        if themes_motifs_data.get("sub_themes"): formatted_list.append(f"Alt Temalar: {', '.join(themes_motifs_data['sub_themes'])}")
-        if themes_motifs_data.get("recurring_motifs"): formatted_list.append(f"Tekrarlayan Motifler: {', '.join(themes_motifs_data['recurring_motifs'])}")
-        if themes_motifs_data.get("moral_lessons"): formatted_list.append(f"Ahlaki Dersler: {', '.join(themes_motifs_data['moral_lessons'])}")
+        if themes_motifs_data.get("main_themes"): formatted_list.append(f"Ana Temalar: {', '.join(themes_motifs_data['main_themes'] if isinstance(themes_motifs_data['main_themes'], list) else [])}")
+        if themes_motifs_data.get("sub_themes"): formatted_list.append(f"Alt Temalar: {', '.join(themes_motifs_data['sub_themes'] if isinstance(themes_motifs_data['sub_themes'], list) else [])}")
+        if themes_motifs_data.get("recurring_motifs"): formatted_list.append(f"Tekrarlayan Motifler: {', '.join(themes_motifs_data['recurring_motifs'] if isinstance(themes_motifs_data['recurring_motifs'], list) else [])}")
+        if themes_motifs_data.get("moral_lessons"): formatted_list.append(f"Ahlaki Dersler: {', '.join(themes_motifs_data['moral_lessons'] if isinstance(themes_motifs_data['moral_lessons'], list) else [])}")
         return "\n".join(formatted_list)
 
     def _format_setting_atmosphere_for_prompt(self, setting_atmosphere_data: Dict[str, Any]) -> str:
@@ -824,7 +749,7 @@ ORİJİNAL METİN:
         formatted_list = []
         for key, value in setting_atmosphere_data.items():
             if isinstance(value, list):
-                formatted_list.append(f"{key.replace('_', ' ').title()}: {', '.join(value)}")
+                formatted_list.append(f"{key.replace('_', ' ').title()}: {', '.join(value if isinstance(value, list) else [])}")
             else:
                 formatted_list.append(f"{key.replace('_', ' ').title()}: {value}")
         return "\n".join(formatted_list)
@@ -950,41 +875,95 @@ ORİJİNAL METİN:
         return self.translation_stages
 
     def back_translate(self, translated_text: str, target_language: str, source_language: str, progress_callback=None) -> str:
-        """Simple back-translation of the translated text to source language"""
+        """
+        Çevrilen metni geri çevirir (kaynak dile) çeviri kalitesini kontrol etmek için.
+        """
+        if progress_callback: progress_callback("Geri çeviri yapılıyor...\n")
+        
+        current_back_translation_prompt = self.back_translation_prompt.format(
+            target_language=target_language,
+            source_language=source_language,
+            translated_text=translated_text
+        )
+
         try:
-            back_translation_prompt = f"""RESPONSE FORMAT (STRICT):
-- Your output MUST CONTAIN ONLY the back-translated text.
-- DO NOT include explanations, greetings, summaries, markdown, or any additional content.
-- The output must be a single, clean, continuous translation.
-- DO NOT DEVIATE from these instructions.
-
-TASK:
-You are a professional literary translator. The text below is in {target_language}. Back-translate it into {source_language}, aiming to reconstruct the presumed original as accurately and naturally as possible.
-
-Focus on:
-- Faithful reproduction of meaning
-- Smooth and natural language flow
-- Matching tone, style, and voice of the original author
-
-TEXT TO BACK-TRANSLATE (in {target_language}):
-{translated_text}
-
-⚠️ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WITH THE LAST WORD OF THE BACK-TRANSLATION.
-DO NOT INCLUDE ANY CONTEXT OR FORMATTING OUTSIDE THE TRANSLATED TEXT.
-
----BEGIN BACK-TRANSLATION---"""
-
-            if progress_callback:
-                progress_callback("Performing back-translation...\n")
-
-            response = self.model.generate_content(back_translation_prompt, safety_settings=self.safety_settings)
-            time.sleep(5) # 5 saniye gecikme eklendi
-            back_translated = self._extract_response_text(response, "Back-Translation", progress_callback)
-
-            return back_translated
-
+            if self.ai_model == "gemini":
+                response = self.model.generate_content(current_back_translation_prompt, safety_settings=self.safety_settings)
+                back_translated_text = self._extract_response_text(response, "Back Translation", progress_callback)
+            elif self.ai_model == "chatgpt":
+                response = openai.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": current_back_translation_prompt}]
+                )
+                back_translated_text = self._extract_response_text(response, "Back Translation", progress_callback)
+            
+            if progress_callback: progress_callback("Geri çeviri tamamlandı.\n")
+            return back_translated_text
+            
         except Exception as e:
-            if progress_callback:
-                progress_callback(f"Back-translation error: {str(e)}\n")
-            print(f"Back-translation error: {str(e)}")
-            return translated_text
+            error_message = f"Geri çeviri hatası: {str(e)}"
+            print(error_message)
+            if progress_callback: progress_callback(f"{error_message}\n")
+            return f"[Geri çeviri hatası: {str(e)}]"
+
+    # Stil rehberi prompt güncelleme metodları
+    def update_style_guide_generation_prompt(self, new_prompt: str):
+        """Stil rehberi oluşturma promptunu günceller."""
+        self.style_guide_generation_prompt = new_prompt
+
+    def update_style_guide_update_prompt(self, new_prompt: str):
+        """Stil rehberi güncelleme promptunu günceller."""
+        self.style_guide_update_prompt = new_prompt
+
+    def update_back_translation_prompt(self, new_prompt: str):
+        """Geri çeviri promptunu günceller."""
+        self.back_translation_prompt = new_prompt
+
+    # Çeviri promptlarını güncelleme metodları (Örnek olarak eklendi, diğerleri de benzer şekilde eklenebilir)
+    def update_initial_translation_prompt(self, new_prompt: str):
+        """İlk çeviri promptunu günceller."""
+        self.initial_prompt = new_prompt
+
+    def update_line_edit_prompt(self, new_prompt: str):
+        """Satır düzenleme promptunu günceller."""
+        self.line_edit_prompt = new_prompt
+
+    def update_cultural_localization_prompt(self, new_prompt: str):
+        """Kültürel yerelleştirme promptunu günceller."""
+        self.cultural_prompt = new_prompt
+
+    def get_all_prompts(self, default=False) -> Dict[str, str]:
+        """Tüm düzenlenebilir promptları döndürür. default=True ise varsayılanları döndürür."""
+        if default:
+            return {
+                "initial_translation": self.default_initial_prompt,
+                "line_edit": self.default_line_edit_prompt,
+                "cultural_localization": self.default_cultural_prompt,
+                "style_guide_generation": self.default_style_guide_generation_prompt,
+                "style_guide_update": self.default_style_guide_update_prompt,
+                "back_translation": self.default_back_translation_prompt
+            }
+        else:
+            return {
+                "initial_translation": self.initial_prompt,
+                "line_edit": self.line_edit_prompt,
+                "cultural_localization": self.cultural_prompt,
+                "style_guide_generation": self.style_guide_generation_prompt,
+                "style_guide_update": self.style_guide_update_prompt,
+                "back_translation": self.back_translation_prompt
+            }
+
+    def set_all_prompts(self, prompts: Dict[str, str]):
+        """Tüm düzenlenebilir promptları günceller."""
+        if "initial_translation" in prompts:
+            self.initial_prompt = prompts["initial_translation"]
+        if "line_edit" in prompts:
+            self.line_edit_prompt = prompts["line_edit"]
+        if "cultural_localization" in prompts:
+            self.cultural_prompt = prompts["cultural_localization"]
+        if "style_guide_generation" in prompts:
+            self.style_guide_generation_prompt = prompts["style_guide_generation"]
+        if "style_guide_update" in prompts:
+            self.style_guide_update_prompt = prompts["style_guide_update"]
+        if "back_translation" in prompts:
+            self.back_translation_prompt = prompts["back_translation"]

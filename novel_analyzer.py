@@ -18,6 +18,7 @@ class NovelAnalyzer:
         self.ai_model = os.getenv("AI_MODEL", "gemini").lower() # Default to gemini if not set
         self.gemini_api_key = os.getenv("GEMINI_API_KEY")
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.allowed_model = os.getenv("ALLOWED_MODEL", None)
 
         self.style_guide = {} # This might be removed or changed later if style guide generation moves
         self.detected_language = None
@@ -25,6 +26,18 @@ class NovelAnalyzer:
         self.cultural_context = {}
         self.main_themes = {}
         self.setting_atmosphere = {}
+        
+        # Default promptları sakla
+        self.default_character_analysis_prompt = """Aşağıdaki metinde geçen ana ve yan karakterleri tespit et ve her biri için detaylı bir analiz yap.\n\nMetin:\n{text}\n\nLütfen yalnızca aşağıdaki JSON formatında bir dizi olarak yanıt ver. Başka açıklama ekleme:\n\n[\n  {{\n    \"name\": \"Karakter Adı\",\n    \"role\": \"Ana Karakter\" veya \"Yan Karakter\",\n    \"occupation\": \"Karakterin mesleği\",\n    \"nickname\": \"Karakterin lakabı\",\n    \"personality\": [\"cesur\", \"yalnız\", \"manipülatif\"],\n    \"emotions\": [\"öfke\", \"endişe\", \"pişmanlık\"],\n    \"speech_style\": [\"sert\", \"alaycı\", \"resmi\"],\n    \"background\": \"Karakterin geçmişi ve önemli olayları.\",\n    \"motivation\": \"Ne istiyor? Neden bu hikâyede yer alıyor?\",\n    \"conflicts\": [\"içsel çatışma\", \"bir diğer karakterle çatışma\"],\n    \"relationships\": {{\n      \"friends\": [\"isim1\", \"isim2\"],\n      \"enemies\": [\"isim3\"],\n      \"family\": [\"isim4\"],\n      \"romantic\": [\"isim5\"]\n    }},\n    \"development\": {{\n      \"beginning\": [\"nasıldı\"],\n      \"middle\": [\"nasıl değişti\"],\n      \"end\": [\"nasıl sona erdi\"]\n    }},\n    \"arc_type\": \"Klasik\",\n    \"key_dialogues\": [\"...\"],\n    \"key_thoughts\": [\"...\"]\n  }}\n]"""
+        self.default_cultural_context_prompt = """Aşağıdaki metnin kültürel bağlamını analiz et.\n        \nMetin:\n{text}\n\nLütfen yalnızca aşağıdaki JSON formatında bir nesne olarak yanıt ver. Başka açıklama ekleme:\n\n{{\n  \"historical_period\": \"Romanın geçtiği tarihsel dönem (örneğin, 19. yüzyıl Osmanlı İmparatorluğu, 20. yüzyıl soğuk savaş dönemi ABD, modern Japonya)\",\n  \"social_norms\": \"Dönemin belirgin sosyal normları ve değerleri (örneğin, aile yapısı, toplumsal hiyerarşiler, ahlaki değerler)\",\n  \"political_climate\": \"Dönemin politik iklimi veya önemli politik olayları (örneğin, savaş sonrası dönem, siyasi çalkantılar, belirli bir hükümet sistemi)\",\n  \"cultural_references\": [\"metindeki önemli kültürel referanslar (örneğin, belirli festivaller, yemekler, giyim tarzları)\"],\n  \"idioms_sayings\": [\"metinde geçen veya o kültüre özgü deyimler, atasözleri, özlü sözler\"],\n  \"specific_customs\": [\"romanda geçen belirli gelenekler, ritüeller veya alışkanlıklar\"],\n  \"language_nuances\": \"Dile özgü ince ayrımlar, argo, şive veya belirli bir sosyal gruba ait dil kullanımı\"\n}}"""
+        self.default_themes_motifs_prompt = """Aşağıdaki metnin ana temalarını ve tekrarlayan motiflerini analiz et.\n\nMetin:\n{text}\n\nLütfen yalnızca aşağıdaki JSON formatında bir nesne olarak yanıt ver. Başka açıklama ekleme:\n\n{{\n  \"main_themes\": [\"ana tema 1 (örneğin, aşk, kayıp, intikam)\", \"ana tema 2\"],\n  \"sub_themes\": [\"alt tema 1 (örneğin, aile bağları, yalnızlık)\", \"alt tema 2\"],\n  \"recurring_motifs\": [\"tekrarlayan motif 1 (sembol, nesne, fikir veya görüntü)\", \"tekrarlayan motif 2\"],\n  \"moral_lessons\": [\"romandan çıkarılan ahlaki dersler veya evrensel mesajlar\"]\n}}"""
+        self.default_setting_atmosphere_prompt = """Aşağıdaki metnin geçtiği ortamı ve yarattığı atmosferi analiz et.\n\nMetin:\n{text}\n\nLütfen yalnızca aşağıdaki JSON formatında bir nesne olarak yanıt ver. Başka açıklama ekleme:\n\n{{\n  \"main_locations\": [\"ana konum 1 (örneğin, Paris, kırsal bir kasaba, uzay gemisi)\", \"ana konum 2\"],\n  \"time_period\": \"Geçtiği zaman dilimi (örneğin, 1800'ler, günümüz, gelecekteki bir yıl, ortaçağ)\",\n  \"geographical_features\": \"Ortamın belirgin coğrafi özellikleri (örneğin, dağlık arazi, nehir kenarı, çöller, ormanlar)\",\n  \"social_environment\": \"Sosyal çevre ve ortamın toplumsal yapısı (örneğin, aristokrat çevre, fakir mahalle, distopik toplum)\",\n  \"prevailing_atmosphere\": \"Romanın genel atmosferi veya ruh hali (örneğin, gergin, huzurlu, kasvetli, fantastik, gizemli)\",\n  \"key_elements\": [\"atmosfere katkıda bulunan ana unsurlar (örneğin, hava durumu, ışıklandırma, sesler, kokular)\"]\n}}"""
+        
+        self.character_analysis_prompt = self.default_character_analysis_prompt
+        self.cultural_context_prompt = self.default_cultural_context_prompt
+        self.themes_motifs_prompt = self.default_themes_motifs_prompt
+        self.setting_atmosphere_prompt = self.default_setting_atmosphere_prompt
+        
         self._setup_ai_model()
         
     def _setup_ai_model(self):
@@ -35,7 +48,8 @@ class NovelAnalyzer:
             if not self.gemini_api_key:
                 raise ValueError("GEMINI_API_KEY not found in environment variables.")
             genai.configure(api_key=self.gemini_api_key)
-            self.model = genai.GenerativeModel('gemini-2.0-flash')
+            model_name = self.allowed_model if (self.allowed_model and self.ai_model == "gemini") else "gemini-1.5-flash-latest"
+            self.model = genai.GenerativeModel(model_name)
             # Güvenlik ayarlarını tanımla: Tüm kategoriler için engellemeyi devre dışı bırak
             self.safety_settings = {
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -43,13 +57,14 @@ class NovelAnalyzer:
                 HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
             }
-            print("DEBUG: Using Gemini model for analysis.")
+            print(f"DEBUG: Using Gemini model for analysis: {model_name}.")
         elif self.ai_model == "chatgpt":
             if not self.openai_api_key:
                 raise ValueError("OPENAI_API_KEY not found in environment variables.")
             openai.api_key = self.openai_api_key
-            self.model = "gpt-4o-mini" # You can change this to other OpenAI models
-            print(f"DEBUG: Using OpenAI model for analysis: {self.model}.")
+            model_name = self.allowed_model if (self.allowed_model and self.ai_model == "chatgpt") else "gpt-4o-mini"
+            self.model = model_name
+            print(f"DEBUG: Using OpenAI model for analysis: {model_name}.")
         else:
             raise ValueError(f"Unsupported AI model specified: {self.ai_model}. Supported models are 'gemini' and 'chatgpt'.")
         
@@ -81,42 +96,7 @@ class NovelAnalyzer:
         """
         Metinden karakterleri tamamen AI kullanarak analiz eder ve her karakter için detaylı bilgi oluşturur.
         """
-        prompt = f"""Aşağıdaki metinde geçen ana ve yan karakterleri tespit et ve her biri için detaylı bir analiz yap.
-
-Metin:
-{text}
-
-Lütfen yalnızca aşağıdaki JSON formatında bir dizi olarak yanıt ver. Başka açıklama ekleme:
-
-[
-  {{
-    "name": "Karakter Adı",
-    "role": "Ana Karakter" veya "Yan Karakter",
-    "occupation": "Karakterin mesleği",
-    "nickname": "Karakterin lakabı",
-    "personality": ["cesur", "yalnız", "manipülatif"],
-    "emotions": ["öfke", "endişe", "pişmanlık"],
-    "speech_style": ["sert", "alaycı", "resmi"],
-    "background": "Karakterin geçmişi ve önemli olayları.",
-    "motivation": "Ne istiyor? Neden bu hikâyede yer alıyor?",
-    "conflicts": ["içsel çatışma", "bir diğer karakterle çatışma"],
-    "relationships": {{
-      "friends": ["isim1", "isim2"],
-      "enemies": ["isim3"],
-      "family": ["isim4"],
-      "romantic": ["isim5"]
-    }},
-    "development": {{
-      "beginning": ["nasıldı"],
-      "middle": ["nasıl değişti"],
-      "end": ["nasıl sona erdi"]
-    }},
-    "arc_type": "Klasik",
-    "key_dialogues": ["..."],
-    "key_thoughts": ["..."]
-  }}
-]
-"""
+        prompt = self.character_analysis_prompt.format(text=text)
 
         try:
             if self.ai_model == "gemini":
@@ -170,23 +150,7 @@ Lütfen yalnızca aşağıdaki JSON formatında bir dizi olarak yanıt ver. Baş
         """
         Metinden kültürel bağlamı analiz eder.
         """
-        prompt = f"""Aşağıdaki metnin kültürel bağlamını analiz et.
-        
-Metin:
-{text}
-
-Lütfen yalnızca aşağıdaki JSON formatında bir nesne olarak yanıt ver. Başka açıklama ekleme:
-
-{{
-  "historical_period": "Romanın geçtiği tarihsel dönem (örneğin, 19. yüzyıl Osmanlı İmparatorluğu, 20. yüzyıl soğuk savaş dönemi ABD, modern Japonya)",
-  "social_norms": "Dönemin belirgin sosyal normları ve değerleri (örneğin, aile yapısı, toplumsal hiyerarşiler, ahlaki değerler)",
-  "political_climate": "Dönemin politik iklimi veya önemli politik olayları (örneğin, savaş sonrası dönem, siyasi çalkantılar, belirli bir hükümet sistemi)",
-  "cultural_references": ["metindeki önemli kültürel referanslar (örneğin, belirli festivaller, yemekler, giyim tarzları)"],
-  "idioms_sayings": ["metinde geçen veya o kültüre özgü deyimler, atasözleri, özlü sözler"],
-  "specific_customs": ["romanda geçen belirli gelenekler, ritüeller veya alışkanlıklar"],
-  "language_nuances": "Dile özgü ince ayrımlar, argo, şive veya belirli bir sosyal gruba ait dil kullanımı"
-}}
-        """
+        prompt = self.cultural_context_prompt.format(text=text)
         try:
             if self.ai_model == "gemini":
                 response = self.model.generate_content(prompt, safety_settings=self.safety_settings)
@@ -227,20 +191,7 @@ Lütfen yalnızca aşağıdaki JSON formatında bir nesne olarak yanıt ver. Ba�
         """
         Metinden ana temaları ve motifleri analiz eder.
         """
-        prompt = f"""Aşağıdaki metnin ana temalarını ve tekrarlayan motiflerini analiz et.
-
-Metin:
-{text}
-
-Lütfen yalnızca aşağıdaki JSON formatında bir nesne olarak yanıt ver. Başka açıklama ekleme:
-
-{{
-  "main_themes": ["ana tema 1 (örneğin, aşk, kayıp, intikam)", "ana tema 2"],
-  "sub_themes": ["alt tema 1 (örneğin, aile bağları, yalnızlık)", "alt tema 2"],
-  "recurring_motifs": ["tekrarlayan motif 1 (sembol, nesne, fikir veya görüntü)", "tekrarlayan motif 2"],
-  "moral_lessons": ["romandan çıkarılan ahlaki dersler veya evrensel mesajlar"]
-}}
-        """
+        prompt = self.themes_motifs_prompt.format(text=text)
         try:
             if self.ai_model == "gemini":
                 response = self.model.generate_content(prompt, safety_settings=self.safety_settings)
@@ -281,22 +232,7 @@ Lütfen yalnızca aşağıdaki JSON formatında bir nesne olarak yanıt ver. Ba�
         """
         Metinden ortam ve atmosferi analiz eder.
         """
-        prompt = f"""Aşağıdaki metnin geçtiği ortamı ve yarattığı atmosferi analiz et.
-
-Metin:
-{text}
-
-Lütfen yalnızca aşağıdaki JSON formatında bir nesne olarak yanıt ver. Başka açıklama ekleme:
-
-{{
-  "main_locations": ["ana konum 1 (örneğin, Paris, kırsal bir kasaba, uzay gemisi)", "ana konum 2"],
-  "time_period": "Geçtiği zaman dilimi (örneğin, 1800'ler, günümüz, gelecekteki bir yıl, ortaçağ)",
-  "geographical_features": "Ortamın belirgin coğrafi özellikleri (örneğin, dağlık arazi, nehir kenarı, çöller, ormanlar)",
-  "social_environment": "Sosyal çevre ve ortamın toplumsal yapısı (örneğin, aristokrat çevre, fakir mahalle, distopik toplum)",
-  "prevailing_atmosphere": "Romanın genel atmosferi veya ruh hali (örneğin, gergin, huzurlu, kasvetli, fantastik, gizemli)",
-  "key_elements": ["atmosfere katkıda bulunan ana unsurlar (örneğin, hava durumu, ışıklandırma, sesler, kokular)"]
-}}
-        """
+        prompt = self.setting_atmosphere_prompt.format(text=text)
         try:
             if self.ai_model == "gemini":
                 response = self.model.generate_content(prompt, safety_settings=self.safety_settings)
@@ -460,3 +396,48 @@ Bölüm Sayısı: {len(sections)}
             sections.append({"type": section_type, "text": stripped_para})
             
         return sections
+
+    # Prompt güncelleme metodları
+    def update_character_analysis_prompt(self, new_prompt: str):
+        """Karakter analizi promptunu günceller."""
+        self.character_analysis_prompt = new_prompt
+
+    def update_cultural_context_prompt(self, new_prompt: str):
+        """Kültürel bağlam analizi promptunu günceller."""
+        self.cultural_context_prompt = new_prompt
+
+    def update_themes_motifs_prompt(self, new_prompt: str):
+        """Temalar ve motifler analizi promptunu günceller."""
+        self.themes_motifs_prompt = new_prompt
+
+    def update_setting_atmosphere_prompt(self, new_prompt: str):
+        """Ortam ve atmosfer analizi promptunu günceller."""
+        self.setting_atmosphere_prompt = new_prompt
+
+    def get_all_prompts(self, default=False) -> Dict[str, str]:
+        """Tüm analiz promptlarını döndürür. default=True ise defaultları döndürür."""
+        if default:
+            return {
+                "character_analysis": self.default_character_analysis_prompt,
+                "cultural_context": self.default_cultural_context_prompt,
+                "themes_motifs": self.default_themes_motifs_prompt,
+                "setting_atmosphere": self.default_setting_atmosphere_prompt
+            }
+        else:
+            return {
+                "character_analysis": self.character_analysis_prompt,
+                "cultural_context": self.cultural_context_prompt,
+                "themes_motifs": self.themes_motifs_prompt,
+                "setting_atmosphere": self.setting_atmosphere_prompt
+            }
+
+    def set_all_prompts(self, prompts: Dict[str, str]):
+        """Tüm analiz promptlarını günceller."""
+        if "character_analysis" in prompts:
+            self.character_analysis_prompt = prompts["character_analysis"]
+        if "cultural_context" in prompts:
+            self.cultural_context_prompt = prompts["cultural_context"]
+        if "themes_motifs" in prompts:
+            self.themes_motifs_prompt = prompts["themes_motifs"]
+        if "setting_atmosphere" in prompts:
+            self.setting_atmosphere_prompt = prompts["setting_atmosphere"]
