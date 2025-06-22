@@ -9,8 +9,9 @@ openai>=1.12.0
 # Language detection
 langdetect>=1.0.9
 
-# GUI framework (usually comes with Python, but listed for completeness)
-# tkinter is part of Python standard library
+# GUI framework
+# tkinter is part of the Python standard library and is included by default on Windows and most Python installations.
+# On some Linux distributions, you may need to install it manually (e.g., 'sudo apt-get install python3-tk').
 
 # Note: The following are part of Python standard library and don't need to be installed:
 # - re (regular expressions)

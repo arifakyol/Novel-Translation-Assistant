@@ -10,6 +10,18 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import openai
 
+def deep_update(source, overrides):
+    """
+    Update a nested dictionary or similar mapping.
+    Modify `source` in place.
+    """
+    for key, value in overrides.items():
+        if isinstance(value, dict) and key in source and isinstance(source[key], dict):
+            deep_update(source[key], value)
+        else:
+            source[key] = value
+    return source
+
 class NovelTranslator:
     def __init__(self, target_country: str = "US"): # API key will be handled internally based on model
         load_dotenv()
@@ -36,9 +48,9 @@ class NovelTranslator:
         self._setup_ai_model()
         
         # Default promptları sakla
-        self.default_initial_prompt = """RESPONSE FORMAT (STRICT):\n- Your output MUST INCLUDE ONLY the translated text.\n- DO NOT add greetings, summaries, explanations, markdown, or formatting.\n- DO NOT include section titles, genre names, character info, or style guide notes.\n- The output must be a single, continuous, plain translation.\n- DO NOT DEVIATE from this rule.\n\nTASK:\nYou are a professional literary translator. Translate the following {section_type} from {source_language} into {target_language} for readers in {target_country}.\n\nFocus on:\n- Preserving the original **tone**, **style**, and **emotional impact**.\n- Ensuring **genre-appropriate phrasing** and **character consistency**.\n\nSOURCE TEXT (in {source_language}):\n{original_section_text}\n\nCONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:\nSource Language: {source_language}\nTarget Language: {target_language}\nTarget Country: {target_country}\nGenre: {genre}\nCharacter Info:\n{formatted_characters_for_prompt}\nCultural Context:\n{formatted_cultural_context_for_prompt}\nMain Themes and Motifs:\n{formatted_themes_motifs_for_prompt}\nSetting and Atmosphere:\n{formatted_setting_atmosphere_for_prompt}\nStyle Guide:\n{style_guide_text}\n\n⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT. \nYOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE TRANSLATION AND END WITH THE LAST WORD OF THE TRANSLATION. \n\n---BEGIN TRANSLATED TEXT---"""
-        self.default_line_edit_prompt = """RESPONSE FORMAT (STRICT):\n- Your output MUST CONTAIN ONLY the edited text.\n- DO NOT include explanations, greetings, summaries, markdown, metadata, or any other additional content.\n- The output must be a single, clean, continuous edited version of the input translation.\n- DO NOT DEVIATE from these instructions under any circumstances.\n\nTASK:\nYou are a professional line editor for literary fiction. Refine the translated text below, which was translated from {source_language} into {target_language}, for readers in {target_country}.\n\nFocus on improving:\n- Flow and sentence rhythm\n- Readability and clarity\n- Grammar and punctuation\n\nWhile preserving:\n- The original meaning\n- Literary tone and atmosphere\n- Character voice and emotional consistency\n- Conformity with the provided style guide\n\nREFERENCE TEXT (DO NOT OUTPUT):\n{original_section_text}\n\nTEXT TO EDIT:\n{initial_translation}\n\nCONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:\nSource Language: {source_language}\nTarget Language: {target_language}\nTarget Country: {target_country}\nGenre: {genre}\nKey Characters:\n{formatted_characters_for_prompt}\nCultural Context:\n{formatted_cultural_context_for_prompt}\nMain Themes and Motifs:\n{formatted_themes_motifs_for_prompt}\nSetting and Atmosphere:\n{formatted_setting_atmosphere_for_prompt}\nStyle Guide:\n{style_guide_text}\n\n⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT.\nYOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE EDITED TEXT AND END WITH THE LAST WORD OF THE EDITED TEXT.\n\n---BEGIN EDITED TEXT---"""
-        self.default_cultural_prompt = """RESPONSE FORMAT (STRICT):\n- Your output MUST CONTAIN ONLY the culturally localized text.\n- DO NOT include introductions, explanations, greetings, summaries, markdown, or any other content.\n- DO NOT DEVIATE from these instructions under any circumstances.\n\nTASK:\nYou are a professional expert in cultural adaptation for literary fiction. Adapt the following translated text, which was translated from {source_language} into {target_language}, so that it feels natural, relatable, and resonant for {target_language} readers in {target_country} — while preserving the original cultural identity, context, and emotional authenticity.\n\nMake minimal, necessary adjustments:\n- Clarify or adapt culturally specific references, idioms, or names only if comprehension would otherwise be hindered.\n- Avoid over-domestication, excessive Anglicization or Americanization unless essential for clarity.\n- Do not Westernize the text unless the original intent requires it.\n\nPreserve:\n- Narrative structure and flow\n- Original intent and message\n- Character voice and emotional tone\n- Literary and stylistic consistency per the provided style guide\n\nREFERENCE TEXT (DO NOT OUTPUT):\n{original_section_text}\n\nTEXT TO LOCALIZE:\n{line_edited}\n\nCONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:\nSource Language: {source_language}\nTarget Language: {target_language}\nTarget Country: {target_country}\nGenre: {genre}\nKey Characters:\n{formatted_characters_for_prompt}\nCultural Context:\n{formatted_cultural_context_for_prompt}\nMain Themes and Motifs:\n{formatted_themes_motifs_for_prompt}\nSetting and Atmosphere:\n{formatted_setting_atmosphere_for_prompt}\nStyle Guide:\n{style_guide_text}\n\n⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT.\nYOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE LOCALIZED TEXT AND END WITH THE LAST WORD OF THE LOCALIZED TEXT.\n\n---BEGIN LOCALIZED TEXT---"""
+        self.default_initial_prompt = """RESPONSE FORMAT (STRICT):\n- Your output MUST INCLUDE ONLY the translated text.\n- DO NOT add greetings, summaries, explanations, markdown, or formatting.\n- DO NOT include section titles, genre names, character info, or style guide notes.\n- The output must be a single, continuous, plain translation.\n- DO NOT DEVIATE from this rule.\n\nTASK:\nYou are a professional literary translator. Translate the following novel section from {source_language} into {target_language} for readers in {target_country}. This section may contain a mix of dialogue, description, and internal thoughts.\n\nFocus on:\n- Preserving the original **tone**, **style**, and **emotional impact**.\n- Ensuring **genre-appropriate phrasing** and **character consistency**.\n\n{mandatory_terms_section}\n\nSOURCE TEXT (in {source_language}):\n{original_section_text}\n\nCONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:\nSource Language: {source_language}\nTarget Language: {target_language}\nTarget Country: {target_country}\nGenre: {genre}\nCharacter Info:\n{formatted_characters_for_prompt}\nCultural Context:\n{formatted_cultural_context_for_prompt}\nMain Themes and Motifs:\n{formatted_themes_motifs_for_prompt}\nSetting and Atmosphere:\n{formatted_setting_atmosphere_for_prompt}\nStyle Guide:\n{style_guide_text}\n\n⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT. \nYOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE TRANSLATION AND END WITH THE LAST WORD OF THE TRANSLATION. \n\n---BEGIN TRANSLATED TEXT---"""
+        self.default_line_edit_prompt = """RESPONSE FORMAT (STRICT):\n- Your output MUST CONTAIN ONLY the edited text.\n- DO NOT include explanations, greetings, summaries, markdown, metadata, or any other additional content.\n- The output must be a single, clean, continuous edited version of the input translation.\n- DO NOT DEVIATE from these instructions under any circumstances.\n\nTASK:\nYou are a professional line editor for literary fiction. Refine the translated text below, which was translated from {source_language} into {target_language}, for readers in {target_country}. The original text is a novel section that may contain a mix of dialogue, description, and internal thoughts.\n\nFocus on improving:\n- Flow and sentence rhythm\n- Readability and clarity\n- Grammar and punctuation\n\nWhile preserving:\n- The original meaning\n- Literary tone and atmosphere\n- Character voice and emotional consistency\n- Conformity with the provided style guide\n\nREFERENCE TEXT (DO NOT OUTPUT):\n{original_section_text}\n\nTEXT TO EDIT:\n{initial_translation}\n\nCONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:\nSource Language: {source_language}\nTarget Language: {target_language}\nTarget Country: {target_country}\nGenre: {genre}\nKey Characters:\n{formatted_characters_for_prompt}\nCultural Context:\n{formatted_cultural_context_for_prompt}\nMain Themes and Motifs:\n{formatted_themes_motifs_for_prompt}\nSetting and Atmosphere:\n{formatted_setting_atmosphere_for_prompt}\nStyle Guide:\n{style_guide_text}\n\n⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT.\nYOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE EDITED TEXT AND END WITH THE LAST WORD OF THE EDITED TEXT.\n\n---BEGIN EDITED TEXT---"""
+        self.default_cultural_prompt = """RESPONSE FORMAT (STRICT):\n- Your output MUST CONTAIN ONLY the culturally localized text.\n- DO NOT include introductions, explanations, greetings, summaries, markdown, or any other content.\n- DO NOT DEVIATE from these instructions under any circumstances.\n\nTASK:\nYou are a professional expert in cultural adaptation for literary fiction. Adapt the following translated text, which was translated from {source_language} into {target_language}, so that it feels natural, relatable, and resonant for {target_language} readers in {target_country} — while preserving the original cultural identity, context, and emotional authenticity. The original text is a novel section that may contain a mix of dialogue, description, and internal thoughts.\n\nMake minimal, necessary adjustments:\n- Clarify or adapt culturally specific references, idioms, or names only if comprehension would otherwise be hindered.\n- Avoid over-domestication, excessive Anglicization or Americanization unless essential for clarity.\n- Do not Westernize the text unless the original intent requires it.\n\nPreserve:\n- Narrative structure and flow\n- Original intent and message\n- Character voice and emotional tone\n- Literary and stylistic consistency per the provided style guide\n\nREFERENCE TEXT (DO NOT OUTPUT):\n{original_section_text}\n\nTEXT TO LOCALIZE:\n{line_edited}\n\nCONTEXT FOR MODEL USE ONLY — DO NOT OUTPUT:\nSource Language: {source_language}\nTarget Language: {target_language}\nTarget Country: {target_country}\nGenre: {genre}\nKey Characters:\n{formatted_characters_for_prompt}\nCultural Context:\n{formatted_cultural_context_for_prompt}\nMain Themes and Motifs:\n{formatted_themes_motifs_for_prompt}\nSetting and Atmosphere:\n{formatted_setting_atmosphere_for_prompt}\nStyle Guide:\n{style_guide_text}\n\n⚠️ DO NOT INCLUDE ANY PART OF THE CONTEXT ABOVE IN YOUR OUTPUT.\nYOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE LOCALIZED TEXT AND END WITH THE LAST WORD OF THE LOCALIZED TEXT.\n\n---BEGIN LOCALIZED TEXT---"""
         self.default_style_guide_generation_prompt = """Sen profesyonel bir edebi çevirmensin. Aşağıdaki roman analizi verilerine dayanarak, {source_language} dilinden {target_language} diline, {target_country} ülkesindeki okuyucular için bu romanın çevirisi için kapsamlı bir stil rehberi oluştur. Bu, çeviri sürecinin başlangıcında oluşturulan ilk taslak stil rehberidir.
 
 Stil rehberi, çevirinin tutarlılığını ve kalitesini sağlamak için kullanılacaktır. Özellikle aşağıdaki alanlara odaklan:
@@ -97,7 +109,7 @@ Ortam ve Atmosfer:
 
 **Önemli Not: Tutarlı Terimler ve Kültürel Referanslar için, sadece birebir çeviri veya orijinalini koruma yerine, hedef dildeki en doğal, kültürel olarak eşdeğer veya açıklayıcı yaklaşımları belirle.** Örneğin, bir rütbe veya unvan için hedef dildeki en yakın ve anlaşılır karşılığı bul, veya bir kültürel öğe için kısa bir açıklama veya adaptasyon öner.
 
-Lütfen yalnızca güncellenmiş stil rehberini aşağıdaki JSON formatında bir nesne olarak yanıt ver. Başka açıklama ekleme:
+Lütfen yalnızca güncellenmiş stil rehberini aşağıdaki JSON formatında bir nesne olarak yanıt ver. Başka açıklama ekleme. JSON içindeki TÜM anahtarlar (keys) ÇİFT TIRNAK içinde olmalıdır.
 
 {{
   "tone": "Genel roman tonu",
@@ -109,20 +121,13 @@ Lütfen yalnızca güncellenmiş stil rehberini aşağıdaki JSON formatında bi
       "formality": "resmi/samimi/nötr",
       "vocabulary": "geniş/sınırlı/argo",
       "speech_patterns": ["kısa cümleler", "uzun betimlemeler", "alaycı ton"]
-    }},
-    "Karakter Adı 2": {{
-      "formality": "resmi/samimi/nötr",
-      "vocabulary": "geniş/sınırlı/argo",
-      "speech_patterns": ["kısa cümleler", "uzun betimlemeler", "alaycı ton"]
     }}
   }},
   "consistent_terms": {{
-    "Orijinal Terim 1": "Çevrilmiş Terim 1 (Hedef dildeki en doğal ve anlaşılır karşılığı, gerekirse kısa açıklama)",
-    "Orijinal Terim 2": "Çevrilmiş Terim 2 (Hedef dildeki en doğal ve anlaşılır karşılığı, gerekirse kısa açıklama)"
+    "Orijinal Terim 1": "Çevrilmiş Terim 1 (Hedef dildeki en doğal ve anlaşılır karşılığı, gerekirse kısa açıklama)"
   }},
   "cultural_references": {{
-    "Orijinal Referans 1": "Çevirideki Yaklaşım/Açıklama (Hedef kültüre nasıl uyarlanmalı veya açıklanmalı)",
-    "Orijinal Referans 2": "Çevirideki Yaklaşım/Açıklama (Hedef kültüre nasıl uyarlanmalı veya açıklanmalı)"
+    "Orijinal Referans 1": "Çevirideki Yaklaşım/Açıklama (Hedef kültüre nasıl uyarlanmalı veya açıklanmalı)"
   }}
 }}
 
@@ -188,14 +193,14 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
         elif self.ai_model == "chatgpt":
             self._setup_openai()
         else:
-            raise ValueError(f"Unsupported AI model: {self.ai_model}. Choose 'gemini' or 'chatgpt'.")
+            raise ValueError(f"error_unsupported_ai_model:{self.ai_model}")
 
     def _setup_gemini(self):
         """
         Setup Gemini API with the provided API key
         """
         if not self.gemini_api_key:
-            raise ValueError("GEMINI_API_KEY not found in environment variables.")
+            raise ValueError("error_gemini_api_key_not_found")
 
         genai.configure(api_key=self.gemini_api_key)
         model_name = self.allowed_model if (self.allowed_model and self.ai_model == "gemini") else "gemini-1.5-flash-latest"
@@ -214,7 +219,7 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
         Setup OpenAI API with the provided API key
         """
         if not self.openai_api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment variables.")
+            raise ValueError("error_openai_api_key_not_found")
 
         openai.api_key = self.openai_api_key
         model_name = self.allowed_model if (self.allowed_model and self.ai_model == "chatgpt") else "gpt-4o-mini"
@@ -227,12 +232,15 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
         """
         pass
 
-    def generate_style_guide_with_ai(self, genre: str, characters_data: Dict[str, Any], cultural_context_data: Dict[str, Any], main_themes_data: Dict[str, Any], setting_atmosphere_data: Dict[str, Any], source_language: str, target_language: str, target_country: str, progress_callback=None, max_retries: int = 3, retry_delay: int = 5):
+    def generate_style_guide_with_ai(self, genre: str, characters_data: Dict[str, Any], cultural_context_data: Dict[str, Any], main_themes_data: Dict[str, Any], setting_atmosphere_data: Dict[str, Any], source_language: str, target_language: str, target_country: str, progress_callback=None, max_retries: int = 3, retry_delay: int = 5, stop_event=None):
         """
         NovelAnalyzer'dan gelen verileri kullanarak stil rehberinin ilk taslağını yapay zeka ile oluşturur.
         Hata durumunda belirtilen sayıda yeniden deneme yapar.
         """
-        if progress_callback: progress_callback("Stil Rehberi AI ile oluşturuluyor...\n")
+        if stop_event and stop_event.is_set():
+            if progress_callback: progress_callback("log_style_guide_generation_stopped")
+            return
+        if progress_callback: progress_callback("log_style_guide_generation_started")
         print("DEBUG: generate_style_guide_with_ai called for initial draft.")
 
         formatted_characters = self._format_characters_for_prompt(characters_data)
@@ -251,8 +259,11 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
             formatted_setting_atmosphere=formatted_setting_atmosphere
         )
         for attempt in range(max_retries):
+            if stop_event and stop_event.is_set():
+                if progress_callback: progress_callback("log_style_guide_generation_stopped")
+                return
             try:
-                if progress_callback: progress_callback(f"  - Stil Rehberi oluşturuluyor (Deneme {attempt + 1}/{max_retries})...\n")
+                if progress_callback: progress_callback("log_style_guide_generation_attempt", attempt=attempt + 1, max_retries=max_retries)
 
                 if self.ai_model == "gemini":
                     response = self.model.generate_content(prompt, safety_settings=self.safety_settings)
@@ -260,7 +271,7 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
                 elif self.ai_model == "chatgpt":
                     # Ensure self.model is set for OpenAI
                     if not self.model:
-                         raise ValueError("OpenAI model not set up.")
+                         raise ValueError("error_openai_model_not_set_up")
                     response = openai.chat.completions.create(
                         model=self.model,
                         messages=[{"role": "user", "content": prompt}],
@@ -280,17 +291,17 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
                 print(f"DEBUG: generate_style_guide_with_ai Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...")
 
                 if not raw_response_text:
-                    raise ValueError("AI'dan boş veya sadece boşluk içeren yanıt alındı.")
+                    raise ValueError("error_ai_empty_response")
 
                 try:
                     ai_generated_style_guide = json5.loads(raw_response_text)
                     self.style_guide.update(ai_generated_style_guide)
                     print("DEBUG: Style guide successfully generated and updated from AI.")
-                    if progress_callback: progress_callback("Stil Rehberi AI tarafından başarıyla oluşturuldu.\n")
+                    if progress_callback: progress_callback("log_style_guide_generation_success")
                     return # Başarılı olursa döngüden çık
                 except json5.Json5Error as json_e: # json.JSONDecodeError yerine json5.Json5Error kullanıldı
-                    if progress_callback: progress_callback(f"Stil Rehberi oluşturma hatası: AI yanıtı geçerli JSON değil: {json_e}\n")
-                    raise ValueError(f"AI yanıtı geçerli JSON değil: {json_e}. Ham yanıt: {raw_response_text}")
+                    if progress_callback: progress_callback("log_style_guide_generation_json_error", error=json_e)
+                    raise ValueError(f"error_json_decode:{json_e}|{raw_response_text}")
 
             except Exception as e:
                 error_message = f"Stil rehberi oluşturma hatası (Deneme {attempt + 1}/{max_retries}): {str(e)}"
@@ -324,13 +335,17 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
                         "cultural_references": {}
                     }
 
-    def update_style_guide(self, original_text: str, translated_text: str, genre: str, characters_data: Dict[str, Any], cultural_context_data: Dict[str, Any], main_themes_data: Dict[str, Any], setting_atmosphere_data: Dict[str, Any], source_language: str, target_language: str, target_country: str, progress_callback=None, max_retries: int = 3, retry_delay: int = 5):
+    def update_style_guide(self, original_text: str, translated_text: str, genre: str, characters_data: Dict[str, Any], cultural_context_data: Dict[str, Any], main_themes_data: Dict[str, Any], setting_atmosphere_data: Dict[str, Any], source_language: str, target_language: str, target_country: str, progress_callback=None, max_retries: int = 3, retry_delay: int = 5, stop_event=None):
         """
         Çevrilen her bölümden sonra stil rehberini dinamik olarak günceller.
         Orijinal metin ve çevrilen metin arasındaki ilişkileri öğrenir.
         Hata durumunda belirtilen sayıda yeniden deneme yapar.
         """
-        if progress_callback: progress_callback("Stil Rehberi dinamik olarak güncelleniyor...\n")
+        if stop_event and stop_event.is_set():
+            if progress_callback: progress_callback("log_style_guide_update_stopped")
+            return
+
+        if progress_callback: progress_callback("log_style_guide_update_started")
         print(f"DEBUG: update_style_guide called for dynamic update.")
 
         # Mevcut stil rehberini JSON string'e dönüştür
@@ -356,8 +371,11 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
             translated_text=translated_text
         )
         for attempt in range(max_retries):
+            if stop_event and stop_event.is_set():
+                if progress_callback: progress_callback("log_style_guide_update_stopped")
+                return
             try:
-                if progress_callback: progress_callback(f"  - Stil Rehberi güncelleniyor (Deneme {attempt + 1}/{max_retries})...\n")
+                if progress_callback: progress_callback("log_style_guide_update_attempt", attempt=attempt + 1, max_retries=max_retries)
 
                 if self.ai_model == "gemini":
                     response = self.model.generate_content(prompt, safety_settings=self.safety_settings)
@@ -381,18 +399,20 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
                 print(f"DEBUG: update_style_guide Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...")
 
                 if not raw_response_text:
-                    raise ValueError("AI'dan boş veya sadece boşluk içeren yanıt alındı.")
+                    raise ValueError("error_ai_empty_response")
 
                 try:
                     ai_updated_style_guide = json5.loads(raw_response_text)
-                    self.style_guide.update(ai_updated_style_guide)
-                    print("DEBUG: Style guide successfully updated from AI.")
-                    if progress_callback: progress_callback("Stil Rehberi AI tarafından başarıyla güncellendi.\n")
+                    # self.style_guide.update(ai_updated_style_guide) -> Bu satır, iç içe geçmiş sözlükleri ezer.
+                    # Bunun yerine derin bir güncelleme (deep update) yap.
+                    deep_update(self.style_guide, ai_updated_style_guide)
+                    print("DEBUG: Style guide successfully deep-updated from AI.")
+                    if progress_callback: progress_callback("log_style_guide_update_success")
                     return # Başarılı olursa döngüden çık
                 except json5.Json5Error as json_e: # json.JSONDecodeError yerine json5.Json5Error kullanıldı
                     print(f"AI yanıtı geçerli JSON değil: {json_e}. Ham yanıt: {raw_response_text}")
-                    if progress_callback: progress_callback(f"Stil Rehberi güncelleme hatası: AI yanıtı geçerli JSON değil: {json_e}\n")
-                    raise ValueError(f"AI yanıtı geçerli JSON değil: {json_e}. Ham yanıt: {raw_response_text}")
+                    if progress_callback: progress_callback("log_style_guide_update_json_error", error=json_e)
+                    raise ValueError(f"error_json_decode:{json_e}|{raw_response_text}")
 
             except Exception as e:
                 # Hata mesajını daha spesifik hale getir
@@ -418,7 +438,7 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
                     # Hata durumunda mevcut stil rehberini koru
                     pass
 
-    def translate_section(self, section_data: Dict[str, str], genre: str, characters_json_str: str, cultural_context_json_str: str, main_themes_json_str: str, setting_atmosphere_json_str: str, source_language: str, target_language: str = "en", target_country: str = "US", progress_callback=None, stop_event=None, max_retries=3, retry_delay=5) -> Tuple[str, List[str]]:
+    def translate_section(self, section_data: Dict[str, str], genre: str, characters_json_str: str, cultural_context_json_str: str, main_themes_json_str: str, setting_atmosphere_json_str: str, source_language: str, target_language: str = "en", target_country: str = "US", progress_callback=None, stop_event=None, max_retries=3, retry_delay=5, user_defined_terms: str = "") -> Tuple[str, List[str]]:
         original_section_text = section_data["text"]
         section_type = section_data["type"]
         stages = []
@@ -504,155 +524,171 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
         formatted_themes_motifs_for_prompt = self._format_themes_motifs_for_prompt(parsed_main_themes)
         formatted_setting_atmosphere_for_prompt = self._format_setting_atmosphere_for_prompt(parsed_setting_atmosphere)
 
+        initial_translation = ""
+        line_edited = ""
+        final_translation = ""
+
+        # Stage 1: Initial Translation
         for attempt in range(max_retries):
+            if stop_event and stop_event.is_set():
+                if progress_callback: progress_callback("log_translation_stopped")
+                return original_section_text, stages
             try:
-                if stop_event and stop_event.is_set():
-                    if progress_callback: progress_callback("Translation stopped by user.\n")
-                    return original_section_text, stages
-
-                # Stage 1: Initial Translation
-                if progress_callback: progress_callback(f"  - Translating {section_type} (Initial Translation) - Attempt {attempt + 1}/{max_retries}...\n")
-
+                if progress_callback: progress_callback("log_stage_attempt", stage="Initial Translation", type=section_type, attempt=attempt + 1, max_retries=max_retries)
+                mandatory_terms_section = ""
+                if user_defined_terms and user_defined_terms.strip():
+                    mandatory_terms_section = f"MANDATORY TRANSLATIONS:\nThe following terms MUST be translated exactly as specified, overriding any other suggestions.\n{user_defined_terms}\n"
                 initial_prompt = self.initial_prompt.format(
-                    section_type=section_type,
-                    source_language=source_language, # Add source_language here
-                    target_language=target_language,
-                    target_country=target_country,
-                    original_section_text=original_section_text,
+                    source_language=source_language, target_language=target_language, target_country=target_country,
+                    mandatory_terms_section=mandatory_terms_section, original_section_text=original_section_text,
                     formatted_characters_for_prompt=formatted_characters_for_prompt,
                     formatted_cultural_context_for_prompt=formatted_cultural_context_for_prompt,
                     formatted_themes_motifs_for_prompt=formatted_themes_motifs_for_prompt,
                     formatted_setting_atmosphere_for_prompt=formatted_setting_atmosphere_for_prompt,
-                    genre=genre,
-                    style_guide_text=style_guide_text
+                    genre=genre, style_guide_text=style_guide_text
                 )
-
                 if self.ai_model == "gemini":
                     initial_response = self.model.generate_content(initial_prompt, safety_settings=self.safety_settings)
                     initial_translation = self._extract_response_text(initial_response, "Initial Translation", progress_callback)
                 elif self.ai_model == "chatgpt":
-                    # Ensure self.model is set for OpenAI
-                    if not self.model:
-                         raise ValueError("OpenAI model not set up.")
-                    initial_response = openai.chat.completions.create(
-                        model=self.model,
-                        messages=[{"role": "user", "content": initial_prompt}]
-                    )
+                    if not self.model: raise ValueError("error_openai_model_not_set_up")
+                    initial_response = openai.chat.completions.create(model=self.model, messages=[{"role": "user", "content": initial_prompt}])
                     initial_translation = initial_response.choices[0].message.content.strip()
-
-
-                time.sleep(5) # 5 saniye gecikme eklendi
-                print(f"DEBUG: Initial model response parts: {initial_response.parts if self.ai_model == 'gemini' else initial_response.choices[0].message.content[:200]}...") # Log based on model
+                
+                time.sleep(5)
                 print(f"DEBUG: Extracted initial translation: {initial_translation[:200]}...")
                 stages.append(f"Initial Translation:\n{initial_translation}\n")
-
-                if stop_event and stop_event.is_set():
-                    if progress_callback: progress_callback("Translation stopped by user.\n")
+                break  # Success, exit retry loop for this stage
+            except Exception as e:
+                self._handle_translation_error(e, "Initial Translation", section_type, attempt, max_retries, retry_delay, progress_callback)
+                if attempt >= max_retries - 1:
                     return original_section_text, stages
 
-                # Stage 2: Line Editing
-                if progress_callback: progress_callback(f"  - Translating {section_type} (Line Editing) - Attempt {attempt + 1}/{max_retries}...\n")
+        if not initial_translation: return original_section_text, stages
+        if stop_event and stop_event.is_set():
+            if progress_callback: progress_callback("Translation stopped by user.\n")
+            return initial_translation, stages
+
+        # Stage 2: Line Editing
+        for attempt in range(max_retries):
+            if stop_event and stop_event.is_set():
+                if progress_callback: progress_callback("log_translation_stopped")
+                return initial_translation, stages
+            try:
+                if progress_callback: progress_callback("log_stage_attempt", stage="Line Editing", type=section_type, attempt=attempt + 1, max_retries=max_retries)
                 line_edit_prompt = self.line_edit_prompt.format(
-                    section_type=section_type,
-                    source_language=source_language, # Add source_language here
-                    target_language=target_language,
-                    target_country=target_country,
+                    source_language=source_language, target_language=target_language, target_country=target_country,
                     original_section_text=original_section_text,
                     formatted_characters_for_prompt=formatted_characters_for_prompt,
                     formatted_cultural_context_for_prompt=formatted_cultural_context_for_prompt,
                     formatted_themes_motifs_for_prompt=formatted_themes_motifs_for_prompt,
                     formatted_setting_atmosphere_for_prompt=formatted_setting_atmosphere_for_prompt,
-                    genre=genre,
-                    initial_translation=initial_translation,
-                    style_guide_text=style_guide_text
+                    genre=genre, initial_translation=initial_translation, style_guide_text=style_guide_text
                 )
-
                 if self.ai_model == "gemini":
                     line_edit_response = self.model.generate_content(line_edit_prompt, safety_settings=self.safety_settings)
                     line_edited = self._extract_response_text(line_edit_response, "Line Editing", progress_callback)
                 elif self.ai_model == "chatgpt":
-                    # Ensure self.model is set for OpenAI
-                    if not self.model:
-                         raise ValueError("OpenAI model not set up.")
-                    line_edit_response = openai.chat.completions.create(
-                        model=self.model,
-                        messages=[{"role": "user", "content": line_edit_prompt}]
-                    )
+                    if not self.model: raise ValueError("error_openai_model_not_set_up")
+                    line_edit_response = openai.chat.completions.create(model=self.model, messages=[{"role": "user", "content": line_edit_prompt}])
                     line_edited = line_edit_response.choices[0].message.content.strip()
-
-                time.sleep(5) # 5 saniye gecikme eklendi
-                print(f"DEBUG: Line edit model response parts: {line_edit_response.parts if self.ai_model == 'gemini' else line_edit_response.choices[0].message.content[:200]}...") # Log based on model
+                
+                time.sleep(5)
                 print(f"DEBUG: Extracted line edit translation: {line_edited[:200]}...")
                 stages.append(f"Line Editing:\n{line_edited}\n")
+                break # Success
+            except Exception as e:
+                self._handle_translation_error(e, "Line Editing", section_type, attempt, max_retries, retry_delay, progress_callback)
+                if attempt >= max_retries - 1:
+                    return initial_translation, stages # Return last successful stage result
 
-                if stop_event and stop_event.is_set():
-                    if progress_callback: progress_callback("Translation stopped by user.\n")
-                    return original_section_text, stages
+        if not line_edited: return initial_translation, stages
+        if stop_event and stop_event.is_set():
+            if progress_callback: progress_callback("Translation stopped by user.\n")
+            return line_edited, stages
 
-                # Stage 3: Cultural Localization
-                if progress_callback: progress_callback(f"  - Translating {section_type} (Cultural Localization) - Attempt {attempt + 1}/{max_retries}...\n")
+        # Stage 3: Cultural Localization
+        for attempt in range(max_retries):
+            if stop_event and stop_event.is_set():
+                if progress_callback: progress_callback("log_translation_stopped")
+                return line_edited, stages
+            try:
+                if progress_callback: progress_callback("log_stage_attempt", stage="Cultural Localization", type=section_type, attempt=attempt + 1, max_retries=max_retries)
                 cultural_prompt = self.cultural_prompt.format(
-                    section_type=section_type,
-                    source_language=source_language, # Add source_language here
-                    target_language=target_language,
-                    target_country=target_country,
+                    source_language=source_language, target_language=target_language, target_country=target_country,
                     original_section_text=original_section_text,
                     formatted_characters_for_prompt=formatted_characters_for_prompt,
                     formatted_cultural_context_for_prompt=formatted_cultural_context_for_prompt,
                     formatted_themes_motifs_for_prompt=formatted_themes_motifs_for_prompt,
                     formatted_setting_atmosphere_for_prompt=formatted_setting_atmosphere_for_prompt,
-                    genre=genre,
-                    line_edited=line_edited,
-                    style_guide_text=style_guide_text
+                    genre=genre, line_edited=line_edited, style_guide_text=style_guide_text
                 )
-
                 if self.ai_model == "gemini":
                     cultural_response = self.model.generate_content(cultural_prompt, safety_settings=self.safety_settings)
                     final_translation = self._extract_response_text(cultural_response, "Cultural Localization", progress_callback)
                 elif self.ai_model == "chatgpt":
-                    # Ensure self.model is set for OpenAI
-                    if not self.model:
-                         raise ValueError("OpenAI model not set up.")
-                    cultural_response = openai.chat.completions.create(
-                        model=self.model,
-                        messages=[{"role": "user", "content": cultural_prompt}]
-                    )
+                    if not self.model: raise ValueError("error_openai_model_not_set_up")
+                    cultural_response = openai.chat.completions.create(model=self.model, messages=[{"role": "user", "content": cultural_prompt}])
                     final_translation = cultural_response.choices[0].message.content.strip()
-
-                time.sleep(5) # 5 saniye gecikme eklendi
-                print(f"DEBUG: Cultural localization model response parts: {cultural_response.parts if self.ai_model == 'gemini' else cultural_response.choices[0].message.content[:200]}...") # Log based on model
+                
+                time.sleep(5)
                 print(f"DEBUG: Extracted final translation: {final_translation[:200]}...")
                 stages.append(f"Cultural Localization:\n{final_translation}\n")
-                
-                # Stil rehberini çevrilen metinle dinamik olarak güncelle
-                self.update_style_guide(
-                    original_section_text,
-                    final_translation,
-                    genre,
-                    parsed_characters,
-                    parsed_cultural_context,
-                    parsed_main_themes,
-                    parsed_setting_atmosphere,
-                    source_language, # Kaynak dil
-                    target_language, # Hedef dil
-                    target_country, # Hedef ülke
-                    progress_callback=progress_callback,
-                    max_retries=max_retries # Arayüzden gelen max_retries değerini ilet
-                )
-                print(f"DEBUG: Dynamic style guide update completed for section type '{section_type}'.")
-                
-                return final_translation, stages
-                
+                break # Success
             except Exception as e:
-                if progress_callback:
-                    progress_callback(f"  - Section translation error (Attempt {attempt + 1}/{max_retries}): {str(e)}\n")
-                print(f"Section translation error (Attempt {attempt + 1}/{max_retries}): {str(e)}")
-                if attempt < max_retries - 1:
-                    print(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                else:
-                    print(f"Max retries reached for section. Returning original text.")
-        return original_section_text, stages
+                self._handle_translation_error(e, "Cultural Localization", section_type, attempt, max_retries, retry_delay, progress_callback)
+                if attempt >= max_retries - 1:
+                    return line_edited, stages # Return last successful stage result
+
+        if not final_translation: return line_edited, stages
+        if stop_event and stop_event.is_set():
+            if progress_callback: progress_callback("Translation stopped by user.\n")
+            return final_translation, stages
+
+        # Stil rehberini çevrilen metinle dinamik olarak güncelle
+        self.update_style_guide(
+            original_section_text, final_translation, genre,
+            parsed_characters, parsed_cultural_context, parsed_main_themes, parsed_setting_atmosphere,
+            source_language, target_language, target_country,
+            progress_callback=progress_callback, max_retries=max_retries, stop_event=stop_event
+        )
+        print(f"DEBUG: Dynamic style guide update completed for section type '{section_type}'.")
+        
+        return final_translation, stages
+
+    def _handle_translation_error(self, e, stage_name, section_type, attempt, max_retries, retry_delay, progress_callback):
+        """Hata yönetimi için yardımcı fonksiyon."""
+        full_error_for_console = str(e)
+        print(f"CONSOLE LOG: Section translation error in '{stage_name}' (Attempt {attempt + 1}/{max_retries}) for '{section_type}': {full_error_for_console}")
+
+        ui_display_message = ""
+        feedback_marker = "Prompt Feedback Details:"
+        if feedback_marker in full_error_for_console:
+            feedback_details_part = full_error_for_console.split(feedback_marker, 1)[-1].strip()
+            actual_block_reason_match = re.search(r"Block Reason:\s*(?!(N/A|NONE|No prompt_feedback available from AI\.?$))([^,]+)", feedback_details_part, re.IGNORECASE)
+            if actual_block_reason_match:
+                ui_display_message = f"API Engelleme Geri Bildirimi ({stage_name} / {section_type}): {feedback_details_part}"
+        
+        if not ui_display_message:
+            if "The `response.parts` quick accessor" in full_error_for_console:
+                ui_display_message = f"API yanıtı '{stage_name}' için alınamadı (SDK teknik hatası). Konsoldaki detaylara bakın."
+            elif "AI response.parts not structured" in full_error_for_console:
+                 ui_display_message = f"API yanıtı '{stage_name}' için beklenmedik bir yapıdaydı. Konsoldaki detaylara bakın."
+            elif "AI returned no content parts" in full_error_for_console:
+                 ui_display_message = f"API '{stage_name}' için içerik döndürmedi. Muhtemelen engellendi. Konsoldaki detaylara bakın."
+            else:
+                ui_display_message = f"'{stage_name}' / '{section_type}' çevrilirken beklenmedik bir hata oluştu. Konsoldaki detaylara bakın."
+        
+        if progress_callback:
+            progress_callback(f"  - Çeviri Hatası (Deneme {attempt + 1}/{max_retries}): {ui_display_message}\n")
+
+        if attempt < max_retries - 1:
+            print(f"Retrying '{stage_name}' for '{section_type}' in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+        else:
+            print(f"Max retries reached for '{stage_name}'.")
+            if progress_callback:
+                progress_callback(f"'{stage_name}' için maksimum deneme sayısına ulaşıldı. Bu bölüm için çeviri durduruldu.\n")
 
     def _format_characters_for_prompt(self, characters_data: Dict[str, Dict[str, str]]) -> str:
         """
@@ -756,15 +792,87 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
 
     def _extract_response_text(self, response, stage_name, progress_callback):
         """Helper to extract text from Gemini response and handle safety issues."""
-        if not response.parts:
-            feedback_str = "No content returned."
-            if response.prompt_feedback and response.prompt_feedback.safety_ratings:
-                feedback_str = "; ".join([f"{sr.category.name}: {sr.probability.name}" for sr in response.prompt_feedback.safety_ratings])
-            if progress_callback: progress_callback(f"{stage_name} blocked or no content. Prompt feedback: {feedback_str}\n")
-            raise Exception(f"{stage_name} failed/blocked. Details: {feedback_str}")
+        
+        prompt_feedback_details = []
+        if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+            pf = response.prompt_feedback
+            block_reason_val = pf.block_reason
+            block_reason_str = "N/A"
+            if block_reason_val is not None:
+                try:
+                    block_reason_str = f"{block_reason_val.name} (Value: {block_reason_val})"
+                except AttributeError: 
+                    block_reason_str = f"Unrecognized BlockReason (Value: {block_reason_val})"
+            
+            block_message_str = pf.block_reason_message if hasattr(pf, 'block_reason_message') and pf.block_reason_message else "N/A"
+            
+            safety_ratings_list = []
+            if pf.safety_ratings:
+                for sr in pf.safety_ratings:
+                    cat_name = sr.category.name if hasattr(sr.category, 'name') else str(sr.category)
+                    prob_name = sr.probability.name if hasattr(sr.probability, 'name') else str(sr.probability)
+                    safety_ratings_list.append(f"{cat_name}: {prob_name}")
+            safety_ratings_str = "; ".join(safety_ratings_list) if safety_ratings_list else "N/A"
+            
+            feedback_log_msg = f"DEBUG: Prompt Feedback for {stage_name} - Block Reason: {block_reason_str}, Message: {block_message_str}, Safety Ratings: {safety_ratings_str}"
+            print(feedback_log_msg) # Always print this for server-side logs
+            prompt_feedback_details.extend([
+                f"Block Reason: {block_reason_str}",
+                f"Block Message: {block_message_str}",
+                f"Safety Ratings: {safety_ratings_str}"
+            ])
+            # Removed progress_callback for DEBUG feedback here, it will be part of the raised exception if an error occurs.
+        else:
+            prompt_feedback_details.append("No prompt_feedback available from AI.")
+            print(f"DEBUG: No prompt_feedback available for {stage_name}")
 
-        text_content = response.text.strip()
+        # Attempt to get text content directly from parts[0].text
+        text_content = None
+        if (hasattr(response, 'parts') and
+            hasattr(response.parts, '__len__') and # Check for general list-like behavior
+            len(response.parts) == 1 and
+            hasattr(response.parts[0], 'text') and
+            response.parts[0].text is not None):
+            
+            text_content = response.parts[0].text.strip()
+            # print(f"DEBUG: Successfully extracted text directly from parts[0] for {stage_name}. Length: {len(text_content)}")
 
+        else: # Conditions for direct text extraction from parts[0].text not met
+            error_details_list = [f"{stage_name} failed: AI response.parts not structured as expected or text is None."]
+            
+            if hasattr(response, 'parts') and hasattr(response.parts, '__len__'): # Check for general list-like behavior
+                error_details_list.append(f"Number of parts: {len(response.parts)}.")
+                if len(response.parts) == 0:
+                    error_details_list.append("Parts list is empty.")
+                else: # len(response.parts) > 1 or part[0] is not text/text is None
+                    for i, part_item in enumerate(response.parts):
+                        part_detail_str = f"Part {i}: "
+                        if hasattr(part_item, 'text'):
+                            if part_item.text is None:
+                                part_detail_str += "Text part (text is None)"
+                            else: # This case should ideally be caught by the primary if, but good for multi-part
+                                part_detail_str += f"Text part (len {len(part_item.text)})"
+                        elif hasattr(part_item, 'inline_data'):
+                            part_detail_str += f"Inline data part (mime_type {part_item.inline_data.mime_type})"
+                        elif hasattr(part_item, 'function_call'):
+                            part_detail_str += "Function call part"
+                        else:
+                            part_detail_str += f"Unknown part type: {type(part_item)}"
+                        error_details_list.append(part_detail_str)
+            elif hasattr(response, 'parts'): 
+                 error_details_list.append(f"Response.parts is not a list, type: {type(response.parts)}")
+            else: 
+                error_details_list.append("Response object does not have 'parts' attribute.")
+
+            error_details_list.extend([f"Prompt Feedback Details:"] + prompt_feedback_details)
+            
+            full_error_message = " ".join(error_details_list)
+            if progress_callback:
+                progress_callback(f"Error in {stage_name}: {full_error_message}\n")
+            print(f"RAISING EXCEPTION (from _extract_response_text due to unsuitable parts): {full_error_message}")
+            raise Exception(full_error_message)
+        
+        # If text_content is successfully extracted, proceed with marker cleaning
         # Try to extract content between markers, if markers exist
         start_marker_str = "---BEGIN"
         end_marker_str = "---END"
@@ -878,7 +986,7 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
         """
         Çevrilen metni geri çevirir (kaynak dile) çeviri kalitesini kontrol etmek için.
         """
-        if progress_callback: progress_callback("Geri çeviri yapılıyor...\n")
+        if progress_callback: progress_callback("log_back_translation_started")
         
         current_back_translation_prompt = self.back_translation_prompt.format(
             target_language=target_language,
@@ -897,14 +1005,14 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
                 )
                 back_translated_text = self._extract_response_text(response, "Back Translation", progress_callback)
             
-            if progress_callback: progress_callback("Geri çeviri tamamlandı.\n")
+            if progress_callback: progress_callback("log_back_translation_success")
             return back_translated_text
             
         except Exception as e:
             error_message = f"Geri çeviri hatası: {str(e)}"
             print(error_message)
-            if progress_callback: progress_callback(f"{error_message}\n")
-            return f"[Geri çeviri hatası: {str(e)}]"
+            if progress_callback: progress_callback("log_back_translation_error", error=str(e))
+            return f"[{lang_texts.get('back_translation_error_placeholder', 'Back-translation error')}: {str(e)}]"
 
     # Stil rehberi prompt güncelleme metodları
     def update_style_guide_generation_prompt(self, new_prompt: str):

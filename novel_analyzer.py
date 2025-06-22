@@ -46,7 +46,7 @@ class NovelAnalyzer:
         """
         if self.ai_model == "gemini":
             if not self.gemini_api_key:
-                raise ValueError("GEMINI_API_KEY not found in environment variables.")
+                raise ValueError("error_gemini_api_key_not_found")
             genai.configure(api_key=self.gemini_api_key)
             model_name = self.allowed_model if (self.allowed_model and self.ai_model == "gemini") else "gemini-1.5-flash-latest"
             self.model = genai.GenerativeModel(model_name)
@@ -60,13 +60,13 @@ class NovelAnalyzer:
             print(f"DEBUG: Using Gemini model for analysis: {model_name}.")
         elif self.ai_model == "chatgpt":
             if not self.openai_api_key:
-                raise ValueError("OPENAI_API_KEY not found in environment variables.")
+                raise ValueError("error_openai_api_key_not_found")
             openai.api_key = self.openai_api_key
             model_name = self.allowed_model if (self.allowed_model and self.ai_model == "chatgpt") else "gpt-4o-mini"
             self.model = model_name
             print(f"DEBUG: Using OpenAI model for analysis: {model_name}.")
         else:
-            raise ValueError(f"Unsupported AI model specified: {self.ai_model}. Supported models are 'gemini' and 'chatgpt'.")
+            raise ValueError(f"error_unsupported_ai_model:{self.ai_model}")
         
     def _detect_language(self, text: str) -> str:
         """
@@ -121,12 +121,12 @@ class NovelAnalyzer:
             print(f"DEBUG: _analyze_characters Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
             
             if not raw_response_text:
-                raise ValueError("AI'dan boş veya sadece boşluk içeren yanıt alındı.")
+                raise ValueError("error_ai_empty_response")
 
             try:
                 raw_characters_list = json5.loads(raw_response_text) # json yerine json5 kullanıldı
             except json5.Json5Error as json_e: # json.JSONDecodeError yerine json5.Json5Error kullanıldı
-                raise ValueError(f"AI yanıtı geçerli JSON değil: {json_e}. Ham yanıt: {raw_response_text}")
+                raise ValueError(f"error_json_decode:{json_e}|{raw_response_text}")
             
             characters_dict = {}
             for char_data in raw_characters_list:
@@ -140,11 +140,11 @@ class NovelAnalyzer:
                     char_data["nickname"] = char_data.get("nickname", "")
 
                     characters_dict[name] = char_data
-            return characters_dict, None # Başarı durumunda karakter sözlüğü ve None (hata yok) döndür
+            return characters_dict, None
         except Exception as e:
-            error_msg = f"AI Karakter analizi hatası: {str(e)}"
+            error_msg = f"analyzer_char_error_prefix:{str(e)}"
             print(error_msg)
-            return {}, error_msg # Hata durumunda boş bir karakter sözlüğü ve hata mesajı döndür
+            return {}, error_msg
 
     def _analyze_cultural_context(self, text: str) -> Tuple[Dict[str, str], str | None]:
         """
@@ -174,16 +174,16 @@ class NovelAnalyzer:
             print(f"DEBUG: _analyze_cultural_context Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
 
             if not raw_response_text:
-                raise ValueError("AI'dan boş veya sadece boşluk içeren yanıt alındı.")
+                raise ValueError("error_ai_empty_response")
 
             try:
                 cultural_context_data = json5.loads(raw_response_text)
             except json5.Json5Error as json_e:
-                raise ValueError(f"AI yanıtı geçerli JSON değil: {json_e}. Ham yanıt: {raw_response_text}")
+                raise ValueError(f"error_json_decode:{json_e}|{raw_response_text}")
 
             return cultural_context_data, None
         except Exception as e:
-            error_msg = f"AI Kültürel Bağlam analizi hatası: {str(e)}"
+            error_msg = f"analyzer_cultural_error_prefix:{str(e)}"
             print(error_msg)
             return {}, error_msg
 
@@ -215,16 +215,16 @@ class NovelAnalyzer:
             print(f"DEBUG: _analyze_main_themes_and_motifs Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
 
             if not raw_response_text:
-                raise ValueError("AI'dan boş veya sadece boşluk içeren yanıt alındı.")
+                raise ValueError("error_ai_empty_response")
 
             try:
                 themes_motifs_data = json5.loads(raw_response_text)
             except json5.Json5Error as json_e:
-                raise ValueError(f"AI yanıtı geçerli JSON değil: {json_e}. Ham yanıt: {raw_response_text}")
+                raise ValueError(f"error_json_decode:{json_e}|{raw_response_text}")
 
             return themes_motifs_data, None
         except Exception as e:
-            error_msg = f"AI Temalar ve Motifler analizi hatası: {str(e)}"
+            error_msg = f"analyzer_themes_error_prefix:{str(e)}"
             print(error_msg)
             return {}, error_msg
 
@@ -256,20 +256,20 @@ class NovelAnalyzer:
             print(f"DEBUG: _analyze_setting_and_atmosphere Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
 
             if not raw_response_text:
-                raise ValueError("AI'dan boş veya sadece boşluk içeren yanıt alındı.")
+                raise ValueError("error_ai_empty_response")
 
             try:
                 setting_atmosphere_data = json5.loads(raw_response_text)
             except json5.Json5Error as json_e:
-                raise ValueError(f"AI yanıtı geçerli JSON değil: {json_e}. Ham yanıt: {raw_response_text}")
+                raise ValueError(f"error_json_decode:{json_e}|{raw_response_text}")
 
             return setting_atmosphere_data, None
         except Exception as e:
-            error_msg = f"AI Ortam ve Atmosfer analizi hatası: {str(e)}"
+            error_msg = f"analyzer_setting_error_prefix:{str(e)}"
             print(error_msg)
             return {}, error_msg
 
-    def analyze(self, content: str, genre_input: str, characters_input: str) -> Tuple[str, List[Dict[str, str]], Dict[str, str], Dict[str, List[str]], Dict[str, str], str | None]:
+    def analyze(self, content: str, genre_input: str, characters_input: str, custom_splitter: str = None) -> Tuple[str, List[Dict[str, str]], Dict[str, str], Dict[str, List[str]], Dict[str, str], str | None]:
         """
         Analyze the novel content and break it into sections based on genre and characters.
         Returns a summary and the segmented sections.
@@ -304,7 +304,7 @@ class NovelAnalyzer:
             all_errors.append(setting_error)
 
         # Segment into sections
-        sections = self.get_sections(content)
+        sections = self.get_sections(content, custom_splitter=custom_splitter)
 
         # Karakter bilgilerini formatla
         character_info = "\n".join([
@@ -376,26 +376,72 @@ Bölüm Sayısı: {len(sections)}
         """
         return self.setting_atmosphere
 
-    def get_sections(self, text: str) -> List[Dict[str, str]]:
-        sections = []
-        paragraphs = re.split(r'\n\s*\n', text)
+    def get_sections(self, text: str, max_words_per_section: int = 3000, paragraphs_per_sub_section: int = 10, custom_splitter: str = None) -> List[Dict[str, str]]:
+        """
+        Hibrit bir yaklaşımla metni bölümlere ayırır:
+        1. Önce metni "Chapter", "Bölüm", "***" gibi yapısal ayraçlara veya kullanıcı tanımlı bir ayraca göre ana bölümlere ayırır.
+        2. Eğer bir ana bölüm belirlenen kelime limitini (max_words_per_section) aşıyorsa,
+           o bölümü daha küçük paragraf gruplarına ayırır.
+        Tüm bölümler, içeriği ne olursa olsun "novel_section" olarak etiketlenir.
+        """
+        if not text.strip():
+            return []
 
-        for para in paragraphs:
-            stripped_para = para.strip()
-            if not stripped_para:
-                continue
+        # 1. Adım: Metni yapısal ayraçlara göre ana bölümlere ayır.
+        if custom_splitter:
+            # Kullanıcı özel bir ayraç girdiyse, regex'te güvenli hale getir ve onu kullan.
+            splitter_pattern = f'({re.escape(custom_splitter)})'
+        else:
+            # Varsayılan yapısal ayraçları kullan.
+            splitter_pattern = r'(\b(?:chapter|bölüm|kısım|part)\s*\d+\b.*?$|^\s*\*+\s*$|^\s*#+\s*$)'
+        
+        # re.split ile metni böl, ayraçları da listeye dahil et.
+        # re.IGNORECASE -> büyük/küçük harf duyarsız yapar (?i) bayrağı yerine.
+        # re.MULTILINE -> ^ ve $'ın her satır için çalışmasını sağlar.
+        parts = re.split(splitter_pattern, text, flags=re.MULTILINE | re.IGNORECASE)
+        
+        main_sections = []
+        current_section_content = ""
 
-            # Determine the type of section (dialogue, thought, description)
-            if stripped_para.startswith('"') and stripped_para.endswith('"'):
-                section_type = "dialogue"
-            elif stripped_para.startswith(("(", "[", "{")) and stripped_para.endswith((")", "]", "}")):
-                section_type = "thought"
+        # Bölünmüş parçaları birleştirerek ana bölümleri oluştur.
+        # parts listesi [metin, ayraç, metin, ayraç, ...] şeklinde gelir.
+        for i, part in enumerate(parts):
+            if i % 2 == 1: # Bu bir ayraçtır.
+                if current_section_content.strip():
+                    main_sections.append(current_section_content.strip())
+                current_section_content = part # Yeni bölüm ayraçla başlar.
+            else: # Bu normal metindir.
+                current_section_content += part
+        
+        if current_section_content.strip():
+            main_sections.append(current_section_content.strip())
+
+        # Eğer hiç ayraç bulunamazsa, tüm metni tek bir ana bölüm olarak ele al.
+        if not main_sections:
+            main_sections.append(text.strip())
+
+        # 2. Adım: Uzun ana bölümleri daha küçük alt bölümlere ayır.
+        final_sections = []
+        for section_text in main_sections:
+            word_count = len(section_text.split())
+            
+            if word_count <= max_words_per_section:
+                # Bölüm yeterince kısaysa, olduğu gibi ekle.
+                final_sections.append({"type": "novel_section", "text": section_text})
             else:
-                section_type = "description"
-            
-            sections.append({"type": section_type, "text": stripped_para})
-            
-        return sections
+                # Bölüm çok uzunsa, paragraf gruplarına ayır.
+                paragraphs = re.split(r'\n\s*\n', section_text)
+                sub_section_text = ""
+                
+                for i, para in enumerate(paragraphs):
+                    sub_section_text += para + "\n\n"
+                    # Belirli sayıda paragrafa ulaşıldığında veya son paragrafta
+                    if (i + 1) % paragraphs_per_sub_section == 0 or (i + 1) == len(paragraphs):
+                        if sub_section_text.strip():
+                            final_sections.append({"type": "novel_section", "text": sub_section_text.strip()})
+                        sub_section_text = ""
+
+        return final_sections
 
     # Prompt güncelleme metodları
     def update_character_analysis_prompt(self, new_prompt: str):

@@ -1,6 +1,7 @@
 import re
 import os
 import tkinter as tk
+import datetime
 from tkinter import ttk, scrolledtext, filedialog, messagebox
 import threading
 from novel_analyzer import NovelAnalyzer
@@ -21,6 +22,8 @@ class NovelTranslatorApp:
         self.app_languages = {}
         self.current_app_language_var = tk.StringVar()
         self.current_app_language = ""
+        self.progress_text = None # Initialize to None
+        self.status_var = None    # Initialize to None
         
         self._load_languages_from_files()
 
@@ -79,8 +82,8 @@ class NovelTranslatorApp:
         self.main_themes = {}
         self.setting_atmosphere = {}
         self.original_detected_language_code = None
+        self.user_defined_terms = "" # Kullanıcı tanımlı terimler için
         
-        # UI_TEXTS YÜKLENDİKTEN SONRA FRAME BAŞLIĞINI AYARLA
         lang_texts_init = self.ui_texts.get(self.current_app_language, self.ui_texts.get("en", {}))
         self.input_analysis_frame = ttk.LabelFrame(self.main_frame, text=lang_texts_init.get("input_analysis_frame_title", "Input & Analysis"), padding="5")
         self.input_analysis_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
@@ -101,11 +104,14 @@ class NovelTranslatorApp:
         self.progress_var = tk.DoubleVar()
         self.progress_bar["variable"] = self.progress_var
         self.progress_bar["maximum"] = 100
-        
+
+        self._update_translation_progress("log_app_init_start")
         self.load_prompts_from_file()
-        self.update_ui_texts() # Ensure UI texts are updated after everything is initialized
+        self.update_ui_texts() 
+        self._update_translation_progress("log_app_init_complete")
         
     def _load_languages_from_files(self):
+        self._update_translation_progress("log_lang_files_load_start")
         lang_dir = "lang"
         self.ui_texts = {}
         self.app_languages = {}
@@ -114,7 +120,7 @@ class NovelTranslatorApp:
 
         if not os.path.exists(lang_dir):
             os.makedirs(lang_dir)
-            print(f"'{lang_dir}' klasörü oluşturuldu. Lütfen dil dosyalarını buraya ekleyin (örn: en.json, tr.json).")
+            self._update_translation_progress("log_lang_files_create_dir")
             self.ui_texts["en"] = {"_language_name_": "English", "app_title": "Novel Translator (No Lang Files)"}
             self.app_languages["English"] = "en"
             self.current_app_language_var.set("English")
@@ -137,8 +143,10 @@ class NovelTranslatorApp:
                             default_lang_code = "tr"
                 except Exception as e:
                     print(f"Dil dosyası yüklenirken hata ({filepath}): {e}")
+                    self._update_translation_progress("log_lang_files_load_error", filename=filepath, error=str(e))
         
         if not self.app_languages:
+            self._update_translation_progress("log_lang_files_load_empty")
             print("UYARI: Geçerli dil dosyası bulunamadı. Temel İngilizce kullanılıyor.")
             self.ui_texts["en"] = {"_language_name_": "English", "app_title": "Novel Translator (Lang Error)"}
             self.app_languages["English"] = "en"
@@ -151,21 +159,24 @@ class NovelTranslatorApp:
             elif first_available_lang_name:
                 self.current_app_language_var.set(first_available_lang_name)
                 self.current_app_language = self.app_languages[first_available_lang_name]
-            else: # Fallback if "English" key is somehow missing but other files exist
+            else: 
                 fallback_lang_name = list(self.app_languages.keys())[0]
                 self.current_app_language_var.set(fallback_lang_name)
                 self.current_app_language = self.app_languages[fallback_lang_name]
-
+        self._update_translation_progress("log_lang_files_load_success", count=len(self.app_languages))
 
     def _on_language_change(self, *args):
         selected_lang_display_name = self.current_app_language_var.get()
         if selected_lang_display_name in self.app_languages:
             self.current_app_language = self.app_languages[selected_lang_display_name]
+            self._update_translation_progress("log_lang_changed", language_name=selected_lang_display_name)
             self.update_ui_texts()
         else:
             print(f"Hata: Seçilen dil '{selected_lang_display_name}' app_languages içinde bulunamadı.")
 
     def update_ui_texts(self):
+        current_lang_name = self.current_app_language_var.get()
+        self._update_translation_progress("log_ui_texts_updated", language_name=current_lang_name)
         lang_texts = self.ui_texts.get(self.current_app_language, self.ui_texts.get("en", {}))
 
         self.root.title(lang_texts.get("app_title", "Novel Translator"))
@@ -198,6 +209,8 @@ class NovelTranslatorApp:
             self.target_country_label_widget.config(text=lang_texts.get("target_country_label", "Target Country:"))
         if hasattr(self, 'retries_label_widget'):
             self.retries_label_widget.config(text=lang_texts.get("retries_label", "Retries:"))
+        if hasattr(self, 'custom_splitter_label_widget'):
+            self.custom_splitter_label_widget.config(text=lang_texts.get("custom_splitter_label", "Custom Splitter (Optional):"))
 
         if hasattr(self, 'analyze_button_widget'):
             self.analyze_button_widget.config(text=lang_texts.get("analyze_novel_button", "Analyze Novel"))
@@ -216,6 +229,8 @@ class NovelTranslatorApp:
             self.edit_analysis_prompt_button_widget.config(text=lang_texts.get("edit_analysis_prompt_button", "Edit Analysis Prompts"))
         if hasattr(self, 'edit_prompts_button_widget'):
             self.edit_prompts_button_widget.config(text=lang_texts.get("edit_prompts_button", "Edit Translation Prompts"))
+        if hasattr(self, 'user_terms_button_widget'):
+            self.user_terms_button_widget.config(text=lang_texts.get("user_terms_button", "User-Defined Terms"))
         if hasattr(self, 'translate_button_widget'):
             self.translate_button_widget.config(text=lang_texts.get("translate_button", "Translate"))
         if hasattr(self, 'save_translation_button_widget'):
@@ -307,39 +322,110 @@ class NovelTranslatorApp:
             if hasattr(self.style_guide_viewer_window_widget, 'close_button'): 
                  self.style_guide_viewer_window_widget.close_button.config(text=lang_texts.get("close_button", "Close"))
 
-    def load_prompts_from_file(self):
-        if os.path.exists(PROMPT_FILE):
-            try:
-                with open(PROMPT_FILE, 'r', encoding='utf-8') as f:
-                    data = json5.load(f)
-                
-                if "all_translator_prompts" in data:
-                    self.translator.set_all_prompts(data["all_translator_prompts"])
-                # Fallback for older structure if "all_translator_prompts" is not present
-                elif "translation_prompts" in data or "style_guide_prompts" in data:
-                    # Initialize with defaults from translator to ensure all keys are present
-                    current_prompts = self.translator.get_all_prompts(default=True)
-                    if "translation_prompts" in data:
-                        tp = data["translation_prompts"]
-                        current_prompts["initial_translation"] = tp.get("translation_prompt", current_prompts["initial_translation"])
-                        current_prompts["line_edit"] = tp.get("line_edit_prompt", current_prompts["line_edit"])
-                        current_prompts["cultural_localization"] = tp.get("cultural_prompt", current_prompts["cultural_localization"])
-                        current_prompts["back_translation"] = tp.get("back_translation_prompt", current_prompts["back_translation"])
-                    if "style_guide_prompts" in data:
-                        sgp = data["style_guide_prompts"]
-                        current_prompts["style_guide_generation"] = sgp.get("style_guide_generation", current_prompts["style_guide_generation"])
-                        current_prompts["style_guide_update"] = sgp.get("style_guide_update", current_prompts["style_guide_update"])
-                    self.translator.set_all_prompts(current_prompts)
+    def _validate_prompt_variables(self, prompt_name: str, prompt_text: str, allowed_vars: set) -> list:
+        """
+        Bir prompt metnindeki değişkenlerin izin verilenler listesinde olup olmadığını kontrol eder.
+        """
+        found_vars = set(re.findall(r'\{(\w+)\}', prompt_text))
+        invalid_vars = found_vars - allowed_vars
+        return list(invalid_vars)
 
-                if "all_analyzer_prompts" in data:
-                    self.analyzer.set_all_prompts(data["all_analyzer_prompts"])
-                elif "analysis_prompts" in data: # Fallback for old structure
-                    self.analyzer.set_all_prompts(data["analysis_prompts"])
-                    
-            except Exception as e:
-                print(f"Prompt dosyası yüklenirken hata: {e}")
+    def load_prompts_from_file(self):
+        self._update_translation_progress("log_prompts_load_start", filename=PROMPT_FILE)
+        if not os.path.exists(PROMPT_FILE):
+            self._update_translation_progress("log_prompts_load_not_found", filename=PROMPT_FILE)
+            return
+
+        try:
+            with open(PROMPT_FILE, 'r', encoding='utf-8') as f:
+                data = json5.load(f)
+        except Exception as e:
+            print(f"Prompt dosyası yüklenirken hata: {e}")
+            self._update_translation_progress("log_prompts_load_error", filename=PROMPT_FILE, error=str(e))
+            messagebox.showerror(self.ui_texts.get("prompt_load_error_title", "Prompt Load Error"), 
+                                 self.ui_texts.get("prompt_load_error_message", "Could not read or parse prompts.json: {error}").format(error=e))
+            return
+
+        # İzin verilen değişken setlerini tanımla
+        analyzer_allowed_vars = {"text"}
+        translator_base_vars = {
+            "source_language", "target_language", "target_country", "genre",
+            "formatted_characters_for_prompt", "formatted_cultural_context_for_prompt",
+            "formatted_themes_motifs_for_prompt", "formatted_setting_atmosphere_for_prompt",
+            "style_guide_text", "original_section_text"
+        }
+        initial_prompt_vars = translator_base_vars.union({"mandatory_terms_section"})
+        line_edit_vars = translator_base_vars.union({"initial_translation"})
+        cultural_localization_vars = translator_base_vars.union({"line_edited"})
+        back_translation_vars = {"source_language", "target_language", "translated_text"}
+        style_gen_vars = {
+            "source_language", "target_language", "target_country", "genre",
+            "formatted_characters", "formatted_cultural_context", 
+            "formatted_themes_motifs", "formatted_setting_atmosphere"
+        }
+        style_update_vars = style_gen_vars.union({"current_style_guide_json", "original_text", "translated_text"})
+
+        validation_map = {
+            "all_analyzer_prompts": {
+                "character_analysis": analyzer_allowed_vars,
+                "cultural_context": analyzer_allowed_vars,
+                "themes_motifs": analyzer_allowed_vars,
+                "setting_atmosphere": analyzer_allowed_vars,
+            },
+            "all_translator_prompts": {
+                "initial_translation": initial_prompt_vars,
+                "line_edit": line_edit_vars,
+                "cultural_localization": cultural_localization_vars,
+                "back_translation": back_translation_vars,
+                "style_guide_generation": style_gen_vars,
+                "style_guide_update": style_update_vars,
+            }
+        }
+
+        all_errors = []
+        # Analiz promptlarını doğrula
+        if "all_analyzer_prompts" in data:
+            for name, prompt_text in data["all_analyzer_prompts"].items():
+                allowed = validation_map["all_analyzer_prompts"].get(name, set())
+                invalid = self._validate_prompt_variables(name, prompt_text, allowed)
+                if invalid:
+                    all_errors.append(f"- Analyzer Prompt '{name}': {', '.join(invalid)}")
+        
+        # Çevirmen promptlarını doğrula
+        if "all_translator_prompts" in data:
+            for name, prompt_text in data["all_translator_prompts"].items():
+                allowed = validation_map["all_translator_prompts"].get(name, set())
+                invalid = self._validate_prompt_variables(name, prompt_text, allowed)
+                if invalid:
+                    all_errors.append(f"- Translator Prompt '{name}': {', '.join(invalid)}")
+
+        if all_errors:
+            lang_texts = self.ui_texts.get(self.current_app_language, self.ui_texts.get("en", {}))
+            error_str = "\n".join(all_errors)
+            messagebox.showerror(
+                lang_texts.get("invalid_prompt_title", "Invalid Prompts Detected"),
+                lang_texts.get("invalid_prompt_message", 
+                                  "The following invalid variables were found in prompts.json. "
+                                  "Please correct them or reset prompts to default. "
+                                  "The application will use default prompts until this is fixed.\n\n{errors}")
+                .format(errors=error_str)
+            )
+            self._update_translation_progress("log_prompts_invalid", errors=error_str)
+            # Hata durumunda varsayılan promptları yükle ve devam et
+            self.translator.set_all_prompts(self.translator.get_all_prompts(default=True))
+            self.analyzer.set_all_prompts(self.analyzer.get_all_prompts(default=True))
+            return
+
+        # Doğrulama başarılıysa promptları yükle
+        if "all_translator_prompts" in data:
+            self.translator.set_all_prompts(data["all_translator_prompts"])
+        if "all_analyzer_prompts" in data:
+            self.analyzer.set_all_prompts(data["all_analyzer_prompts"])
+            
+        self._update_translation_progress("log_prompts_load_success", filename=PROMPT_FILE)
 
     def save_prompts_to_file(self):
+        self._update_translation_progress("log_prompts_save_start", filename=PROMPT_FILE)
         data = {
             "all_translator_prompts": self.translator.get_all_prompts(),
             "all_analyzer_prompts": self.analyzer.get_all_prompts()
@@ -347,8 +433,10 @@ class NovelTranslatorApp:
         try:
             with open(PROMPT_FILE, 'w', encoding='utf-8') as f:
                 json5.dump(data, f, ensure_ascii=False, indent=4)
+            self._update_translation_progress("log_prompts_save_success", filename=PROMPT_FILE)
         except Exception as e:
             print(f"Prompt dosyası kaydedilirken hata: {e}")
+            self._update_translation_progress("log_prompts_save_error", filename=PROMPT_FILE, error=str(e))
 
     def create_input_section(self, frame, column):
         current_lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -398,6 +486,12 @@ class NovelTranslatorApp:
         self.retries_var = tk.IntVar(value=3)
         retries_spinbox = ttk.Spinbox(details_frame, from_=1, to=10, textvariable=self.retries_var, width=5)
         retries_spinbox.grid(row=5, column=1, padx=5, pady=2)
+
+        self.custom_splitter_label_widget = ttk.Label(details_frame, text=current_lang_texts.get("custom_splitter_label", "Custom Splitter (Optional):"))
+        self.custom_splitter_label_widget.grid(row=6, column=0, padx=5, pady=2)
+        self.custom_splitter_var = tk.StringVar()
+        self.custom_splitter_entry = ttk.Entry(details_frame, textvariable=self.custom_splitter_var)
+        self.custom_splitter_entry.grid(row=6, column=1, padx=5, pady=2)
         
     def create_analysis_section(self, frame, column):
         current_lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -454,6 +548,10 @@ class NovelTranslatorApp:
         self.edit_analysis_prompt_button_widget.pack(side=tk.LEFT, padx=5, pady=5)
         self.edit_prompts_button_widget = ttk.Button(button_frame, text=current_lang_texts.get("edit_prompts_button", "Edit Translation Prompts"), command=self.show_prompt_editor)
         self.edit_prompts_button_widget.pack(side=tk.LEFT, padx=5, pady=5)
+
+        self.user_terms_button_widget = ttk.Button(button_frame, text=current_lang_texts.get("user_terms_button", "User-Defined Terms"), command=self.show_user_terms_editor)
+        self.user_terms_button_widget.pack(side=tk.LEFT, padx=5, pady=5)
+
         self.translate_button_widget = ttk.Button(button_frame, text=current_lang_texts.get("translate_button", "Translate"), command=self.translate_novel)
         self.translate_button_widget.pack(side=tk.LEFT, padx=5, pady=5)
         self.save_translation_button_widget = ttk.Button(button_frame, text=current_lang_texts.get("save_translation_button", "Save Translation"), command=self.save_translation)
@@ -473,14 +571,16 @@ class NovelTranslatorApp:
         file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
         if file_path:
             self.file_path_var.set(file_path)
-            self.status_var.set(f"Loaded: {os.path.basename(file_path)}")
+            self.status_var.set(f"Loaded: {os.path.basename(file_path)}") 
+            self._update_translation_progress("log_novel_file_selected", filename=os.path.basename(file_path))
             
     def analyze_novel(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         if not self.file_path_var.get():
             messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("select_novel_file_error", "Please select a novel file first!"))
             return
-            
+        
+        self._update_translation_progress("log_novel_analysis_started")
         try:
             genre = self.genre_var.get()
             if not genre:
@@ -489,13 +589,15 @@ class NovelTranslatorApp:
                 
             with open(self.file_path_var.get(), 'r', encoding='utf-8') as file:
                 content = file.read()
+            
+            custom_splitter = self.custom_splitter_var.get()
                 
-            analysis_summary, self.novel_sections, self.cultural_context, self.main_themes, self.setting_atmosphere, error_message = self.analyzer.analyze(content, genre, "")
+            analysis_summary, self.novel_sections, self.cultural_context, self.main_themes, self.setting_atmosphere, error_message = self.analyzer.analyze(content, genre, "", custom_splitter)
             
             self.characters = self.analyzer.get_characters()
             self.analysis_text.delete(1.0, tk.END)
             
-            localized_summary = analysis_summary # Placeholder, actual localization happens below
+            localized_summary = analysis_summary 
             summary_replacements = {
                 "Roman Analizi:": lang_texts.get("analyzer_summary_title", "Novel Analysis:"),
                 "Tespit Edilen Dil:": lang_texts.get("analyzer_detected_language_label", "Detected Language:"),
@@ -512,7 +614,7 @@ class NovelTranslatorApp:
             self.analysis_text.insert(tk.END, localized_summary)
             
             if error_message:
-                localized_error_message = error_message # Placeholder
+                localized_error_message = error_message 
                 error_prefixes = {
                     "AI Karakter analizi hatası:": lang_texts.get("analyzer_char_error_prefix", "AI Character analysis error:"),
                     "AI Kültürel Bağlam analizi hatası:": lang_texts.get("analyzer_cultural_error_prefix", "AI Cultural Context analysis error:"),
@@ -532,31 +634,37 @@ class NovelTranslatorApp:
 
             self.original_detected_language_code = self.analyzer.get_detected_language()
             
-            self._update_translation_progress(lang_texts.get("style_guide_ai_query_progress", "Querying AI for Style Guide..."))
+            self._update_translation_progress("style_guide_ai_query_progress") 
             selected_country_name = self.target_country_var.get()
             target_country_code = self.available_countries.get(selected_country_name, "US")
 
             self.translator.generate_style_guide_with_ai(
                 genre, self.characters, self.cultural_context, self.main_themes, self.setting_atmosphere,
                 self.original_detected_language_code, self.available_languages[self.target_language_var.get()],
-                target_country_code, lambda msg: self._update_translation_progress(msg),
-                max_retries=self.retries_var.get()
+                target_country_code, lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, **kwargs),
+                max_retries=self.retries_var.get(),
+                stop_event=self.stop_event
             )
-            self._update_translation_progress(lang_texts.get("style_guide_updated_by_ai_progress", "Style Guide updated by AI."))
+            self._update_translation_progress("style_guide_updated_by_ai_progress") 
 
             self.status_var.set(lang_texts.get("analysis_complete_status", "Novel analysis complete. Ready for translation."))
             if not error_message:
                 messagebox.showinfo(lang_texts.get("analysis_complete_title", "Analysis Complete"), lang_texts.get("analysis_complete_message", "Analysis is complete."))
             self.novel_analyzed = True
+            self._update_translation_progress("log_novel_analysis_finished")
         except Exception as e:
-            messagebox.showerror(lang_texts.get("analysis_error_title", "Analysis Error"), f"{lang_texts.get('unexpected_analysis_error', 'An unexpected error occurred during analysis')}: {str(e)}")
+            detailed_error = f"{lang_texts.get('unexpected_analysis_error', 'An unexpected error occurred during analysis')}: {str(e)}"
+            messagebox.showerror(lang_texts.get("analysis_error_title", "Analysis Error"), detailed_error)
             self.status_var.set(lang_texts.get("analysis_failed_status", "Analysis failed."))
+            self._update_translation_progress("log_novel_analysis_error", error=str(e))
             
     def translate_novel(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         if not self.file_path_var.get():
             messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("select_novel_file_error", "Please select a novel file first!"))
             return
+        
+        self._update_translation_progress("log_translation_process_started")
         try:
             genre = self.genre_var.get()
             max_retries = self.retries_var.get()
@@ -579,17 +687,20 @@ class NovelTranslatorApp:
             target_country_code = self.available_countries.get(selected_country_name, "US")
             self.translator.target_country = target_country_code
             
-            threading.Thread(target=self._run_translation_in_background, args=(max_retries, target_country_code), daemon=True).start()
+            threading.Thread(target=self._run_translation_in_background, args=(max_retries, target_country_code, self.user_defined_terms), daemon=True).start()
         except Exception as e:
-            messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), f"{lang_texts.get('generic_error_occurred', 'An error occurred')}: {str(e)}")
+            error_msg = f"{lang_texts.get('generic_error_occurred', 'An error occurred')}: {str(e)}"
+            messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), error_msg)
+            self._update_translation_progress("log_translation_process_error", error=str(e))
 
     def stop_translation_process(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         self.stop_event.set()
         self.status_var.set(lang_texts.get("translation_stopped_status", "Translation stopped by user."))
         messagebox.showinfo(lang_texts.get("translation_stopped_title", "Translation Stopped"), lang_texts.get("translation_stopped_message", "Translation process has been stopped."))
+        self._update_translation_progress("log_translation_process_stopped")
 
-    def _run_translation_in_background(self, max_retries, target_country_code):
+    def _run_translation_in_background(self, max_retries, target_country_code, user_defined_terms):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         try:
             total_sections = len(self.novel_sections)
@@ -598,68 +709,103 @@ class NovelTranslatorApp:
                 original_text = section["text"]
                 section_type = section["type"]
                 
-                progress_message_template = lang_texts.get("translating_section_progress", "Translating section {current}/{total} ({type})...")
-                self._update_translation_progress(progress_message_template.format(current=current_section_index + 1, total=total_sections, type=section_type), current_section_index + 1, total_sections)
+                self._update_translation_progress("translating_section_progress", current_section_index + 1, total_sections, current=current_section_index + 1, total=total_sections, type=section_type)
 
                 translation_result, stages = self.translator.translate_section(
-                    section, self.genre_var.get(), json5.dumps(self.characters),
-                    json5.dumps(self.cultural_context), json5.dumps(self.main_themes), json5.dumps(self.setting_atmosphere),
-                    self.original_detected_language_code, self.available_languages[self.target_language_var.get()],
-                    target_country_code, lambda msg: self._update_translation_progress(msg, current_section_index + 1, total_sections),
-                    self.stop_event, max_retries
+                    section_data=section,
+                    genre=self.genre_var.get(),
+                    characters_json_str=json5.dumps(self.characters),
+                    cultural_context_json_str=json5.dumps(self.cultural_context),
+                    main_themes_json_str=json5.dumps(self.main_themes),
+                    setting_atmosphere_json_str=json5.dumps(self.setting_atmosphere),
+                    source_language=self.original_detected_language_code,
+                    target_language=self.available_languages[self.target_language_var.get()],
+                    target_country=target_country_code,
+                    progress_callback=lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, current_section_index + 1, total_sections, **kwargs),
+                    stop_event=self.stop_event,
+                    max_retries=max_retries,
+                    user_defined_terms=user_defined_terms
                 )
+
+                if self.stop_event.is_set():
+                    self._update_translation_progress("log_translation_process_stopped_mid_section", current=current_section_index + 1, total=total_sections)
+                    break
                 
                 self.translated_sections.append({"type": section_type, "text": translation_result, "stages": stages})
                 
-                back_translated = self.translator.back_translate(
-                    translation_result, self.available_languages[self.target_language_var.get()],
-                    self.analyzer.get_detected_language(),
-                    lambda msg: self._update_translation_progress(msg, current_section_index + 1, total_sections)
-                )
+                # Sadece geçerli bir çeviri varsa geri çeviri yap
+                back_translated = ""
+                if translation_result != original_text:
+                    back_translated = self.translator.back_translate(
+                        translation_result, self.available_languages[self.target_language_var.get()],
+                        self.analyzer.get_detected_language(),
+                        lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, current_section_index + 1, total_sections, **kwargs)
+                    )
                 self.back_translated_sections.append({"type": section_type, "text": back_translated})
                 self.root.after(0, self._append_translated_chapter, original_text, translation_result, back_translated)
                 
                 progress_percent = ((current_section_index + 1) / total_sections) * 100
                 self.progress_var.set(progress_percent)
-                completed_message_template = lang_texts.get("section_completed_progress", "Section {current}/{total} completed.")
-                self._update_translation_progress(completed_message_template.format(current=current_section_index + 1, total=total_sections), current_section_index + 1, total_sections)
+                self._update_translation_progress("section_completed_progress", current_section_index + 1, total_sections, current=current_section_index + 1, total=total_sections)
         except Exception as e:
-            error_message_template = lang_texts.get("translation_error_progress", "Error during translation: {error}")
-            self._update_translation_progress(error_message_template.format(error=str(e)), 0, 0)
+            self._update_translation_progress("translation_error_progress", 0, 0, error=str(e))
         finally:
-            if not self.stop_event.is_set(): # Only show completion if not stopped
+            if not self.stop_event.is_set(): 
                 self.status_var.set(lang_texts.get("translation_complete_status", "Translation complete."))
                 self.progress_var.set(100)
                 messagebox.showinfo(lang_texts.get("translation_complete_title", "Translation Complete"), lang_texts.get("translation_complete_message", "The translation process has finished."))
+                self._update_translation_progress("log_translation_process_finished")
 
-    def _update_translation_progress(self, message, current_section=0, total_sections=0):
-        lang_texts = self.ui_texts.get(self.current_app_language, {})
-        self.progress_text.config(state='normal')
+    def _update_translation_progress(self, message_key_or_raw_message, current_section=0, total_sections=0, **format_args):
+        lang_texts = self.ui_texts.get(self.current_app_language, self.ui_texts.get("en", {}))
+        message_template = lang_texts.get(message_key_or_raw_message, str(message_key_or_raw_message))
         
-        # Simplified message processing for now, assuming messages from translator.py are already somewhat localized or generic
-        processed_message = message.strip()
-        
-        # Add section progress if applicable
+        final_processed_message = ""
+        try:
+            final_processed_message = message_template.format(**format_args)
+        except KeyError as e: 
+            print(f"Warning: Formatting KeyError for message key '{message_key_or_raw_message}': {e}. Using raw template/key.")
+            final_processed_message = message_template 
+        except Exception as e:
+            print(f"Warning: General formatting error for message key '{message_key_or_raw_message}': {e}. Using raw template/key.")
+            final_processed_message = message_template
+
+        final_processed_message = final_processed_message.strip()
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        message_for_log_area = f"[{timestamp}] {final_processed_message}"
+
         if total_sections > 0 and current_section > 0:
-             if not re.search(r'\(\d+/\d+\)', processed_message) and not processed_message.startswith("Section") and not processed_message.startswith("Bölüm"): # Avoid double progress
-                progress_info = f"({current_section}/{total_sections}) "
-                processed_message = progress_info + processed_message
-        
-        self.progress_text.insert(tk.END, processed_message + "\n")
-        self.progress_text.see(tk.END)
-        self.progress_text.config(state='disabled')
-        
-        # Status bar update
-        if total_sections > 0 and current_section > 0 and current_section <= total_sections:
-            overall_percent = int((current_section / total_sections) * 100)
-            # Use a generic status bar message or a more specific one if the message indicates a step
-            status_template = lang_texts.get("translation_in_progress_status_bar", "Translation in progress: Section {current}/{total} ({percent}%)")
-            self.status_var.set(status_template.format(current=current_section, total=total_sections, percent=overall_percent))
-        elif message: # For messages not tied to section progress (e.g., "Style guide updated")
-            self.status_var.set(message.strip())
+            already_has_ratio = re.search(r'\(\s*\d+\s*/\s*\d+\s*\)', final_processed_message)
+            starts_with_section_progress_keyword = lang_texts.get("log_section_prefix", "Section") 
+            starts_with_bolum_progress_keyword = lang_texts.get("log_bolum_prefix", "Bölüm") 
+            
+            localized_section_keyword_pattern = rf"^({re.escape(starts_with_section_progress_keyword)}|{re.escape(starts_with_bolum_progress_keyword)})\s+\d+\s*/\s*\d+"
+            starts_with_specific_section_progress = re.match(localized_section_keyword_pattern, final_processed_message, re.IGNORECASE)
 
+            if not already_has_ratio and not starts_with_specific_section_progress:
+                progress_info_template = lang_texts.get("log_section_progress_indicator", "({current}/{total}) ")
+                progress_info = progress_info_template.format(current=current_section, total=total_sections)
+                message_for_log_area = f"[{timestamp}] {progress_info}{final_processed_message}"
+        
+        if self.progress_text:
+            self.progress_text.config(state='normal')
+            self.progress_text.insert(tk.END, message_for_log_area + "\n")
+            self.progress_text.see(tk.END)
+            self.progress_text.config(state='disabled')
+        else:
+            # Fallback if progress_text is not yet initialized (e.g., during early __init__)
+            print(message_for_log_area)
+        
+        if self.status_var:
+            if total_sections > 0 and current_section > 0 and current_section <= total_sections:
+                overall_percent = int((current_section / total_sections) * 100)
+                status_template = lang_texts.get("translation_in_progress_status_bar", "Translation in progress: Section {current}/{total} ({percent}%)")
+                self.status_var.set(status_template.format(current=current_section, total=total_sections, percent=overall_percent))
+            elif final_processed_message: 
+                self.status_var.set(final_processed_message)
 
     def _append_translated_chapter(self, original_text, translated_text, back_translated_text=""):
+        self._update_translation_progress("log_display_updated_for_section")
         self.root.update_idletasks()
         self.original_text_display.config(state='normal')
         self.original_text_display.delete(1.0, tk.END)
@@ -685,6 +831,7 @@ class NovelTranslatorApp:
         if not self.translated_sections:
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("no_translated_content_to_save_warning", "No translated content to save."))
             return
+        self._update_translation_progress("log_saving_translation_start")
         file_path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text files", "*.txt"), ("All files", "*.*")], title=lang_texts.get("save_translation_dialog_title", "Save Translation"))
         if file_path:
             try:
@@ -693,14 +840,18 @@ class NovelTranslatorApp:
                         file.write(section["text"] + "\n\n")
                 self.status_var.set(lang_texts.get("translation_saved_to_status", "Translation saved to: {filename}").format(filename=os.path.basename(file_path)))
                 messagebox.showinfo(lang_texts.get("save_complete_title", "Save Complete"), lang_texts.get("save_complete_message", "File saved successfully."))
+                self._update_translation_progress("log_saving_translation_success", filename=os.path.basename(file_path))
             except Exception as e:
-                messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("failed_to_save_translation_error", "Failed to save translation: {error}").format(error=str(e)))
+                error_msg = lang_texts.get("failed_to_save_translation_error", "Failed to save translation: {error}").format(error=str(e))
+                messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), error_msg)
+                self._update_translation_progress("log_saving_translation_error", error=str(e))
 
     def save_back_translation(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         if not self.back_translated_sections:
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("no_back_translated_content_to_save_warning", "No back-translated content to save."))
             return
+        self._update_translation_progress("log_saving_back_translation_start")
         file_path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text files", "*.txt"), ("All files", "*.*")], title=lang_texts.get("save_back_translation_dialog_title", "Save Back-Translation"))
         if file_path:
             try:
@@ -709,14 +860,18 @@ class NovelTranslatorApp:
                         file.write(section["text"] + "\n\n")
                 self.status_var.set(lang_texts.get("back_translation_saved_to_status", "Back-translation saved to: {filename}").format(filename=os.path.basename(file_path)))
                 messagebox.showinfo(lang_texts.get("save_complete_title", "Save Complete"), lang_texts.get("back_translation_saved_message", "Back-translation saved successfully."))
+                self._update_translation_progress("log_saving_back_translation_success", filename=os.path.basename(file_path))
             except Exception as e:
-                messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("failed_to_save_back_translation_error", "Failed to save back-translation: {error}").format(error=str(e)))
+                error_msg = lang_texts.get("failed_to_save_back_translation_error", "Failed to save back-translation: {error}").format(error=str(e))
+                messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), error_msg)
+                self._update_translation_progress("log_saving_back_translation_error", error=str(e))
 
     def save_style_guide(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
-        if not self.translator.style_guide or not any(self.translator.style_guide.values()): # Check if style guide is empty or all values are empty
+        if not self.translator.style_guide or not any(self.translator.style_guide.values()): 
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("no_style_guide_content_to_save_warning", "No style guide content to save."))
             return
+        self._update_translation_progress("log_saving_style_guide_start")
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json"), ("All files", "*.*")], title=lang_texts.get("save_style_guide_dialog_title", "Save Style Guide"))
         if file_path:
             try:
@@ -724,13 +879,17 @@ class NovelTranslatorApp:
                     json5.dump(self.translator.style_guide, file, ensure_ascii=False, indent=2)
                 self.status_var.set(lang_texts.get("style_guide_saved_to_status", "Style guide saved to: {filename}").format(filename=os.path.basename(file_path)))
                 messagebox.showinfo(lang_texts.get("save_complete_title", "Save Complete"), lang_texts.get("style_guide_saved_message", "Style guide saved successfully."))
+                self._update_translation_progress("log_saving_style_guide_success", filename=os.path.basename(file_path))
             except Exception as e:
-                messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("failed_to_save_style_guide_error", "Failed to save style guide: {error}").format(error=str(e)))
+                error_msg = lang_texts.get("failed_to_save_style_guide_error", "Failed to save style guide: {error}").format(error=str(e))
+                messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), error_msg)
+                self._update_translation_progress("log_saving_style_guide_error", error=str(e))
 
     def import_style_guide(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json"), ("All files", "*.*")], title=lang_texts.get("import_style_guide_dialog_title", "Import Style Guide"))
         if file_path:
+            self._update_translation_progress("log_import_style_guide_start", filename=os.path.basename(file_path))
             try:
                 with open(file_path, 'r', encoding='utf-8') as file:
                     imported_style_guide = json5.load(file)
@@ -739,14 +898,18 @@ class NovelTranslatorApp:
                 self.translator.style_guide.update(imported_style_guide)
                 self.status_var.set(lang_texts.get("style_guide_imported_from_status", "Style guide imported from: {filename}").format(filename=os.path.basename(file_path)))
                 messagebox.showinfo(lang_texts.get("import_complete_title", "Import Complete"), lang_texts.get("style_guide_imported_message", "Style guide imported successfully."))
+                self._update_translation_progress("log_import_style_guide_success", filename=os.path.basename(file_path))
             except Exception as e:
-                messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("failed_to_import_style_guide_error", "Failed to import style guide: {error}").format(error=str(e)))
+                error_msg = lang_texts.get("failed_to_import_style_guide_error", "Failed to import style guide: {error}").format(error=str(e))
+                messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), error_msg)
+                self._update_translation_progress("log_import_style_guide_error", error=str(e))
 
     def show_character_editor(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         if not self.novel_analyzed:
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("analyze_first_warning", "Please analyze the novel first!"))
             return
+        self._update_translation_progress("log_char_editor_opened")
         self.char_window = tk.Toplevel(self.root) 
         self.char_window.title(lang_texts.get("character_editor_title", "Character Editor"))
         self.char_window.geometry("1000x800")
@@ -890,11 +1053,12 @@ class NovelTranslatorApp:
         if self.analyzer.characters:
             self.char_listbox.selection_set(0)
             self.char_listbox.activate(0)
-            self.on_character_select(None)
+            self.on_character_select(None) 
         else:
             self.selected_character_name = None
 
     def update_character_list(self):
+        self._update_translation_progress("log_char_list_updated")
         self.char_listbox.delete(0, tk.END)
         for char_name in self.analyzer.characters.keys():
             self.char_listbox.insert(tk.END, char_name)
@@ -903,6 +1067,7 @@ class NovelTranslatorApp:
         selection = self.char_listbox.curselection()
         if not selection: return
         char_name = self.char_listbox.get(selection[0])
+        self._update_translation_progress("log_char_selected", name=char_name)
         self.selected_character_name = char_name
         char_data = self.analyzer.characters.get(char_name, {})
         
@@ -964,7 +1129,7 @@ class NovelTranslatorApp:
             messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("character_exists_error", "A character named '{name}' already exists.").format(name=new_name))
             return
 
-        char_data = self.analyzer.characters.pop(old_name, {}) # Use .pop with a default
+        char_data = self.analyzer.characters.pop(old_name, {}) 
         
         char_data["name"] = new_name
         char_data["role"] = self.char_role_var.get()
@@ -1006,6 +1171,7 @@ class NovelTranslatorApp:
             self.char_listbox.see(new_index)
         except ValueError: pass 
         messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("character_info_saved_message", "Character information saved."))
+        self._update_translation_progress("log_char_changes_saved", name=new_name)
 
     def add_new_character(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1053,6 +1219,7 @@ class NovelTranslatorApp:
         self.on_character_select(None) 
         self.selected_character_name = new_character_name 
         messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("new_character_added_message", "New character '{name}' added.").format(name=new_character_name))
+        self._update_translation_progress("log_char_added", name=new_character_name)
 
     def delete_character(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1065,7 +1232,6 @@ class NovelTranslatorApp:
             if char_name_to_delete in self.analyzer.characters:
                 del self.analyzer.characters[char_name_to_delete]
             self.update_character_list()
-            # Clear form fields
             self.char_name_var.set("")
             self.char_role_var.set("")
             self.char_mentions_var.set("")
@@ -1089,12 +1255,14 @@ class NovelTranslatorApp:
             self.char_thoughts_text.delete(1.0, tk.END)
             self.selected_character_name = None 
             messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("character_deleted_message", "Character deleted."))
+            self._update_translation_progress("log_char_deleted", name=char_name_to_delete)
 
     def show_novel_details_editor(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         if not self.novel_analyzed:
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("analyze_first_warning", "Please analyze the novel first!"))
             return
+        self._update_translation_progress("log_novel_details_editor_opened")
         self.details_novel_window_widget = tk.Toplevel(self.root)
         self.details_novel_window_widget.title(lang_texts.get("edit_novel_details_title", "Edit Novel Details"))
         self.details_novel_window_widget.geometry("1000x800")
@@ -1119,7 +1287,7 @@ class NovelTranslatorApp:
         self.details_novel_window_widget.export_button.pack(side=tk.LEFT, padx=5)
         self.details_novel_window_widget.import_button = ttk.Button(button_frame, text=lang_texts.get("import_button", "Import"), command=self.import_novel_details)
         self.details_novel_window_widget.import_button.pack(side=tk.LEFT, padx=5)
-        self._load_novel_details_to_editor()
+        self._load_novel_details_to_editor() 
 
     def _create_cultural_context_tab(self, parent_frame):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1203,13 +1371,14 @@ class NovelTranslatorApp:
         sub_frame.grid_columnconfigure(1, weight=1)
 
     def _load_novel_details_to_editor(self):
+        self._update_translation_progress("log_novel_details_loaded_to_editor")
         if self.cultural_context:
             for key, widget_or_var in self.cultural_context_fields.items():
                 data_key = key.replace("_var", "").replace("_text", "")
                 value = self.cultural_context.get(data_key, "")
                 if isinstance(widget_or_var, tk.StringVar):
                     widget_or_var.set(value if isinstance(value, str) else ", ".join(value))
-                else: # ScrolledText
+                else: 
                     widget_or_var.delete(1.0, tk.END)
                     widget_or_var.insert(tk.END, value if isinstance(value, str) else ", ".join(value))
         if self.main_themes:
@@ -1224,7 +1393,7 @@ class NovelTranslatorApp:
                 value = self.setting_atmosphere.get(data_key, "")
                 if isinstance(widget_or_var, tk.StringVar):
                     widget_or_var.set(value if isinstance(value, str) else ", ".join(value))
-                else: # ScrolledText
+                else: 
                     widget_or_var.delete(1.0, tk.END)
                     widget_or_var.insert(tk.END, value if isinstance(value, str) else ", ".join(value))
 
@@ -1233,7 +1402,7 @@ class NovelTranslatorApp:
             data_key = key.replace("_var", "").replace("_text", "")
             if isinstance(widget_or_var, tk.StringVar):
                 self.cultural_context[data_key] = widget_or_var.get()
-            else: # ScrolledText
+            else: 
                 text_content = widget_or_var.get(1.0, tk.END).strip()
                 if data_key in ["cultural_references", "idioms_sayings", "specific_customs"]:
                     self.cultural_context[data_key] = [item.strip() for item in text_content.split(',') if item.strip()]
@@ -1247,7 +1416,7 @@ class NovelTranslatorApp:
             data_key = key.replace("_var", "").replace("_text", "")
             if isinstance(widget_or_var, tk.StringVar):
                 self.setting_atmosphere[data_key] = widget_or_var.get()
-            else: # ScrolledText
+            else: 
                 text_content = widget_or_var.get(1.0, tk.END).strip()
                 if data_key in ["main_locations", "key_elements"]:
                     self.setting_atmosphere[data_key] = [item.strip() for item in text_content.split(',') if item.strip()]
@@ -1255,41 +1424,49 @@ class NovelTranslatorApp:
                     self.setting_atmosphere[data_key] = text_content
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("novel_details_saved_message", "Novel details saved."))
+        self._update_translation_progress("log_novel_details_saved_from_editor")
 
     def export_characters(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         if not self.analyzer.characters:
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("no_character_to_export_warning", "No characters to export."))
             return
+        self._update_translation_progress("log_export_characters_start")
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")], title=lang_texts.get("export_characters_dialog_title", "Export Characters"))
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as file:
                     json5.dump(self.analyzer.characters, file, ensure_ascii=False, indent=2)
                 messagebox.showinfo(lang_texts.get("success_title", "Success"), lang_texts.get("characters_exported_message", "Characters exported."))
+                self._update_translation_progress("log_export_characters_success", filename=os.path.basename(file_path))
             except Exception as e:
                 messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("export_error_message", "Export error: {error}").format(error=str(e)))
+                self._update_translation_progress("log_export_characters_error", error=str(e))
 
     def import_characters(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")], title=lang_texts.get("import_characters_dialog_title", "Import Characters"))
         if file_path:
+            self._update_translation_progress("log_import_characters_start", filename=os.path.basename(file_path))
             try:
                 with open(file_path, 'r', encoding='utf-8') as file:
                     imported_characters = json5.load(file)
                 if not isinstance(imported_characters, dict):
                     raise ValueError(lang_texts.get("invalid_character_data_error", "Invalid character data."))
                 self.analyzer.characters.update(imported_characters)
-                self.update_character_list()
+                self.update_character_list() 
                 messagebox.showinfo(lang_texts.get("success_title", "Success"), lang_texts.get("characters_imported_message", "Characters imported."))
+                self._update_translation_progress("log_import_characters_success", filename=os.path.basename(file_path))
             except Exception as e:
                 messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("import_error_message", "Import error: {error}").format(error=str(e)))
+                self._update_translation_progress("log_import_characters_error", error=str(e))
 
     def export_novel_details(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         if not self.novel_analyzed:
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("no_novel_details_to_export_warning", "No novel details to export."))
             return
+        self._update_translation_progress("log_export_novel_details_start")
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")], title=lang_texts.get("export_novel_details_dialog_title", "Export Novel Details"))
         if file_path:
             try:
@@ -1297,13 +1474,16 @@ class NovelTranslatorApp:
                 with open(file_path, 'w', encoding='utf-8') as file:
                     json5.dump(details, file, ensure_ascii=False, indent=2)
                 messagebox.showinfo(lang_texts.get("success_title", "Success"), lang_texts.get("novel_details_exported_message", "Novel details exported."))
+                self._update_translation_progress("log_export_novel_details_success", filename=os.path.basename(file_path))
             except Exception as e:
                 messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("export_error_message", "Export error: {error}").format(error=str(e)))
+                self._update_translation_progress("log_export_novel_details_error", error=str(e))
 
     def import_novel_details(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")], title=lang_texts.get("import_novel_details_dialog_title", "Import Novel Details"))
         if file_path:
+            self._update_translation_progress("log_import_novel_details_start", filename=os.path.basename(file_path))
             try:
                 with open(file_path, 'r', encoding='utf-8') as file:
                     imported_details = json5.load(file)
@@ -1312,13 +1492,16 @@ class NovelTranslatorApp:
                 self.cultural_context.update(imported_details.get("cultural_context", {}))
                 self.main_themes.update(imported_details.get("main_themes", {}))
                 self.setting_atmosphere.update(imported_details.get("setting_atmosphere", {}))
-                self._load_novel_details_to_editor()
+                self._load_novel_details_to_editor() 
                 messagebox.showinfo(lang_texts.get("success_title", "Success"), lang_texts.get("novel_details_imported_message", "Novel details imported."))
+                self._update_translation_progress("log_import_novel_details_success", filename=os.path.basename(file_path))
             except Exception as e:
                 messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("import_error_message", "Import error: {error}").format(error=str(e)))
+                self._update_translation_progress("log_import_novel_details_error", error=str(e))
 
     def show_prompt_editor(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
+        self._update_translation_progress("log_prompt_editor_opened")
         self.prompt_window_widget = tk.Toplevel(self.root)
         self.prompt_window_widget.title(lang_texts.get("edit_prompts_title", "Edit Translation Prompts"))
         self.prompt_window_widget.geometry("800x600") 
@@ -1384,29 +1567,29 @@ class NovelTranslatorApp:
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")], title=lang_texts.get("export_prompts_dialog_title", "Export Prompts"))
         if file_path:
-            # Save all prompts from the translator instance
             prompts_to_export = {"all_translator_prompts": self.translator.get_all_prompts()}
-            # Update with current UI values for the ones being edited
             prompts_to_export["all_translator_prompts"]["initial_translation"] = initial_translation.strip()
             prompts_to_export["all_translator_prompts"]["line_edit"] = line_edit.strip()
             prompts_to_export["all_translator_prompts"]["cultural_localization"] = cultural_localization.strip()
             prompts_to_export["all_translator_prompts"]["back_translation"] = back_translation.strip()
             
+            self._update_translation_progress("log_export_translation_prompts_start")
             with open(file_path, 'w', encoding='utf-8') as f:
                 json5.dump(prompts_to_export, f, ensure_ascii=False, indent=4)
             messagebox.showinfo(lang_texts.get("export_title", "Export"), lang_texts.get("prompts_exported_message", "Prompts exported successfully."))
+            self._update_translation_progress("log_export_translation_prompts_success", filename=os.path.basename(file_path))
         
     def import_prompts(self, initial_text_widget, line_edit_text_widget, cultural_text_widget, back_translation_text_widget):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")], title=lang_texts.get("import_prompts_dialog_title", "Import Prompts"))
         if file_path:
+            self._update_translation_progress("log_import_translation_prompts_start", filename=os.path.basename(file_path))
             with open(file_path, 'r', encoding='utf-8') as f:
                 imported_data = json5.load(f)
             
             prompts_to_load = imported_data.get("all_translator_prompts", {})
-            defaults = self.translator.get_all_prompts(default=True) # For fallback
+            defaults = self.translator.get_all_prompts(default=True) 
             
-            # Update UI
             initial_text_widget.delete("1.0", tk.END)
             initial_text_widget.insert(tk.END, prompts_to_load.get("initial_translation", defaults["initial_translation"]))
             line_edit_text_widget.delete("1.0", tk.END)
@@ -1416,13 +1599,12 @@ class NovelTranslatorApp:
             back_translation_text_widget.delete("1.0", tk.END)
             back_translation_text_widget.insert(tk.END, prompts_to_load.get("back_translation", defaults["back_translation"]))
             
-            # Update translator instance with all imported prompts
-            # Ensure all keys are present, falling back to defaults if not in imported file
             full_prompts_to_set = defaults.copy()
             full_prompts_to_set.update(prompts_to_load) 
             self.translator.set_all_prompts(full_prompts_to_set)
 
             messagebox.showinfo(lang_texts.get("import_title", "Import"), lang_texts.get("prompts_imported_message", "Prompts imported successfully."))
+            self._update_translation_progress("log_import_translation_prompts_success", filename=os.path.basename(file_path))
         
     def reset_prompts(self, initial_text_widget, line_edit_text_widget, cultural_text_widget, back_translation_text_widget):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1437,19 +1619,17 @@ class NovelTranslatorApp:
         back_translation_text_widget.delete("1.0", tk.END)
         back_translation_text_widget.insert(tk.END, default_prompts["back_translation"])
         
-        # Also reset the translator instance to defaults for these specific prompts
         self.translator.initial_prompt = default_prompts["initial_translation"]
         self.translator.line_edit_prompt = default_prompts["line_edit"]
         self.translator.cultural_prompt = default_prompts["cultural_localization"]
         self.translator.back_translation_prompt = default_prompts["back_translation"]
-        # Style guide prompts are handled in their own editor, so no need to reset them here.
         
         messagebox.showinfo(lang_texts.get("reset_title", "Reset"), lang_texts.get("prompts_reset_message", "Prompts reset to default."))
+        self._update_translation_progress("log_reset_translation_prompts")
         
     def save_prompts(self, initial_translation, line_edit, cultural_localization, back_translation):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         
-        # Get all current prompts to preserve style guide prompts
         current_all_prompts = self.translator.get_all_prompts()
         prompts_to_save = {
             "initial_translation": initial_translation.strip(),
@@ -1460,15 +1640,16 @@ class NovelTranslatorApp:
             "style_guide_update": current_all_prompts.get("style_guide_update")
         }
         self.translator.set_all_prompts(prompts_to_save)
-        self.save_prompts_to_file()
+        self.save_prompts_to_file() 
         messagebox.showinfo(lang_texts.get("save_title", "Save"), lang_texts.get("prompts_saved_message", "Prompts saved successfully."))
+        self._update_translation_progress("log_save_translation_prompts")
 
     def show_section_editor(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         if not self.novel_sections:
             messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("analyze_first_warning", "Please analyze the novel first!"))
             return
-
+        self._update_translation_progress("log_section_editor_opened")
         self.section_window_widget = tk.Toplevel(self.root)
         self.section_window_widget.title(lang_texts.get("edit_sections_title", "Edit Sections"))
         self.section_window_widget.geometry("1000x600")
@@ -1506,10 +1687,11 @@ class NovelTranslatorApp:
         self.section_window_widget.import_button = ttk.Button(button_frame, text=lang_texts.get("import_button", "Import"), command=self.import_sections)
         self.section_window_widget.import_button.pack(side=tk.LEFT, padx=5)
 
-        self.update_section_listbox()
+        self.update_section_listbox() 
         self.section_listbox.bind('<<ListboxSelect>>', self.on_section_select)
 
     def update_section_listbox(self):
+        self._update_translation_progress("log_section_list_updated")
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         self.section_listbox.delete(0, tk.END)
         for i, section in enumerate(self.novel_sections, 1):
@@ -1520,6 +1702,7 @@ class NovelTranslatorApp:
         if not self.section_listbox.curselection():
             return
         index = self.section_listbox.curselection()[0]
+        self._update_translation_progress("log_section_selected", index=index + 1)
         section = self.novel_sections[index]
         self.section_text.delete("1.0", tk.END)
         self.section_text.insert("1.0", section["text"])
@@ -1528,10 +1711,11 @@ class NovelTranslatorApp:
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         new_section = {"type": lang_texts.get("new_section_default_type", "New Section"), "text": ""}
         self.novel_sections.append(new_section)
-        self.update_section_listbox()
+        self.update_section_listbox() 
         self.section_listbox.selection_set(len(self.novel_sections) - 1)
         self.section_listbox.see(len(self.novel_sections) - 1)
-        self.on_section_select(None) # Load new section into text area
+        self.on_section_select(None) 
+        self._update_translation_progress("log_section_added")
 
     def delete_section(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1540,8 +1724,9 @@ class NovelTranslatorApp:
             return
         index = self.section_listbox.curselection()[0]
         del self.novel_sections[index]
-        self.update_section_listbox()
+        self.update_section_listbox() 
         self.section_text.delete("1.0", tk.END)
+        self._update_translation_progress("log_section_deleted", index=index + 1)
 
     def save_sections(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1551,29 +1736,39 @@ class NovelTranslatorApp:
         index = self.section_listbox.curselection()[0]
         self.novel_sections[index]["text"] = self.section_text.get("1.0", tk.END).strip()
         messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("changes_saved_message", "Changes saved!"))
+        self._update_translation_progress("log_section_changes_saved", index=index + 1)
 
     def export_sections(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
+        self._update_translation_progress("log_export_sections_start")
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")], title=lang_texts.get("export_sections_dialog_title", "Export Sections"))
         if file_path:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json5.dump(self.novel_sections, f, ensure_ascii=False, indent=4)
-            messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("sections_exported_message", "Sections exported successfully!"))
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json5.dump(self.novel_sections, f, ensure_ascii=False, indent=4)
+                messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("sections_exported_message", "Sections exported successfully!"))
+                self._update_translation_progress("log_export_sections_success", filename=os.path.basename(file_path))
+            except Exception as e:
+                self._update_translation_progress("log_export_sections_error", error=str(e))
 
     def import_sections(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")], title=lang_texts.get("import_sections_dialog_title", "Import Sections"))
         if file_path:
+            self._update_translation_progress("log_import_sections_start", filename=os.path.basename(file_path))
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     self.novel_sections = json5.load(f)
-                self.update_section_listbox()
+                self.update_section_listbox() 
                 messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("sections_imported_message", "Sections imported successfully!"))
+                self._update_translation_progress("log_import_sections_success", filename=os.path.basename(file_path))
             except Exception as e:
                 messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("import_error_message", "Import error: {error}").format(error=str(e)))
+                self._update_translation_progress("log_import_sections_error", error=str(e))
 
     def show_analysis_prompt_editor(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
+        self._update_translation_progress("log_analysis_prompt_editor_opened")
         self.analysis_prompt_window_widget = tk.Toplevel(self.root)
         self.analysis_prompt_window_widget.title(lang_texts.get("edit_analysis_prompts_title", "Edit Analysis Prompts"))
         self.analysis_prompt_window_widget.geometry("800x600") 
@@ -1630,14 +1825,17 @@ class NovelTranslatorApp:
                 "character_analysis": character_prompt.strip(), "cultural_context": cultural_prompt.strip(),
                 "themes_motifs": themes_prompt.strip(), "setting_atmosphere": setting_prompt.strip()
             }
+            self._update_translation_progress("log_export_analysis_prompts_start")
             with open(file_path, 'w', encoding='utf-8') as f:
                 json5.dump({"all_analyzer_prompts": prompts}, f, ensure_ascii=False, indent=4)
             messagebox.showinfo(lang_texts.get("export_title", "Export"), lang_texts.get("analysis_prompts_exported_message", "Analysis prompts exported."))
+            self._update_translation_progress("log_export_analysis_prompts_success", filename=os.path.basename(file_path))
         
     def import_analysis_prompts(self, character_prompt_text, cultural_prompt_text, themes_prompt_text, setting_prompt_text):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")], title=lang_texts.get("import_analysis_prompts_dialog_title", "Import Analysis Prompts"))
         if file_path:
+            self._update_translation_progress("log_import_analysis_prompts_start", filename=os.path.basename(file_path))
             with open(file_path, 'r', encoding='utf-8') as f:
                 imported_data = json5.load(f)
             prompts = imported_data.get("all_analyzer_prompts", {})
@@ -1652,8 +1850,9 @@ class NovelTranslatorApp:
             setting_prompt_text.delete("1.0", tk.END)
             setting_prompt_text.insert(tk.END, prompts.get("setting_atmosphere", defaults["setting_atmosphere"]))
             
-            self.analyzer.set_all_prompts(prompts) # Update analyzer instance
+            self.analyzer.set_all_prompts(prompts) 
             messagebox.showinfo(lang_texts.get("import_title", "Import"), lang_texts.get("analysis_prompts_imported_message", "Analysis prompts imported."))
+            self._update_translation_progress("log_import_analysis_prompts_success", filename=os.path.basename(file_path))
         
     def reset_analysis_prompts(self, character_prompt_text, cultural_prompt_text, themes_prompt_text, setting_prompt_text):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1666,8 +1865,9 @@ class NovelTranslatorApp:
         themes_prompt_text.insert(tk.END, default_prompts["themes_motifs"])
         setting_prompt_text.delete("1.0", tk.END)
         setting_prompt_text.insert(tk.END, default_prompts["setting_atmosphere"])
-        self.analyzer.set_all_prompts(default_prompts) # Reset analyzer instance
+        self.analyzer.set_all_prompts(default_prompts) 
         messagebox.showinfo(lang_texts.get("reset_title", "Reset"), lang_texts.get("analysis_prompts_reset_message", "Analysis prompts reset."))
+        self._update_translation_progress("log_reset_analysis_prompts")
         
     def save_analysis_prompts(self, character_prompt, cultural_prompt, themes_prompt, setting_prompt):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1676,11 +1876,13 @@ class NovelTranslatorApp:
             "themes_motifs": themes_prompt.strip(), "setting_atmosphere": setting_prompt.strip()
         }
         self.analyzer.set_all_prompts(prompts_to_save)
-        self.save_prompts_to_file()
+        self.save_prompts_to_file() 
         messagebox.showinfo(lang_texts.get("save_title", "Save"), lang_texts.get("analysis_prompts_saved_message", "Analysis prompts saved."))
+        self._update_translation_progress("log_save_analysis_prompts")
 
     def show_style_guide_prompt_editor(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
+        self._update_translation_progress("log_style_guide_prompt_editor_opened")
         self.style_guide_prompt_window_widget = tk.Toplevel(self.root)
         self.style_guide_prompt_window_widget.title(lang_texts.get("edit_style_guide_prompts_title", "Edit Style Guide Prompts"))
         self.style_guide_prompt_window_widget.geometry("800x600") 
@@ -1695,7 +1897,7 @@ class NovelTranslatorApp:
         self.style_guide_notebook_widget.add(self.style_guide_generation_tab_widget, text=lang_texts.get("style_guide_generation_tab", "Generation"))
         self.style_guide_notebook_widget.add(self.style_guide_update_tab_widget, text=lang_texts.get("style_guide_update_tab", "Update"))
         
-        current_prompts = self.translator.get_all_prompts() # Use get_all_prompts
+        current_prompts = self.translator.get_all_prompts() 
         
         generation_prompt_text = scrolledtext.ScrolledText(self.style_guide_generation_tab_widget, wrap=tk.WORD, width=80, height=20)
         generation_prompt_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -1721,18 +1923,20 @@ class NovelTranslatorApp:
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")], title=lang_texts.get("export_style_guide_prompts_dialog_title", "Export Style Guide Prompts"))
         if file_path:
-            # Save all prompts from the translator instance, then update the specific ones
             prompts_to_export = {"all_translator_prompts": self.translator.get_all_prompts()}
             prompts_to_export["all_translator_prompts"]["style_guide_generation"] = generation_prompt.strip()
             prompts_to_export["all_translator_prompts"]["style_guide_update"] = update_prompt.strip()
+            self._update_translation_progress("log_export_style_guide_prompts_start")
             with open(file_path, 'w', encoding='utf-8') as f:
                 json5.dump(prompts_to_export, f, ensure_ascii=False, indent=4)
             messagebox.showinfo(lang_texts.get("export_title", "Export"), lang_texts.get("style_guide_prompts_exported_message", "Style guide prompts exported."))
+            self._update_translation_progress("log_export_style_guide_prompts_success", filename=os.path.basename(file_path))
         
     def import_style_guide_prompts(self, generation_prompt_text, update_prompt_text):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")], title=lang_texts.get("import_style_guide_prompts_dialog_title", "Import Style Guide Prompts"))
         if file_path:
+            self._update_translation_progress("log_import_style_guide_prompts_start", filename=os.path.basename(file_path))
             with open(file_path, 'r', encoding='utf-8') as f:
                 imported_data = json5.load(f)
             prompts_to_load = imported_data.get("all_translator_prompts", {})
@@ -1743,12 +1947,12 @@ class NovelTranslatorApp:
             update_prompt_text.delete("1.0", tk.END)
             update_prompt_text.insert(tk.END, prompts_to_load.get("style_guide_update", defaults["style_guide_update"]))
             
-            # Update translator instance
             current_prompts = self.translator.get_all_prompts()
             current_prompts["style_guide_generation"] = prompts_to_load.get("style_guide_generation", defaults["style_guide_generation"])
             current_prompts["style_guide_update"] = prompts_to_load.get("style_guide_update", defaults["style_guide_update"])
             self.translator.set_all_prompts(current_prompts)
             messagebox.showinfo(lang_texts.get("import_title", "Import"), lang_texts.get("style_guide_prompts_imported_message", "Style guide prompts imported."))
+            self._update_translation_progress("log_import_style_guide_prompts_success", filename=os.path.basename(file_path))
         
     def reset_style_guide_prompts(self, generation_prompt_text, update_prompt_text):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1758,12 +1962,12 @@ class NovelTranslatorApp:
         update_prompt_text.delete("1.0", tk.END)
         update_prompt_text.insert(tk.END, default_prompts["style_guide_update"])
         
-        # Reset in translator instance
         current_prompts = self.translator.get_all_prompts()
         current_prompts["style_guide_generation"] = default_prompts["style_guide_generation"]
         current_prompts["style_guide_update"] = default_prompts["style_guide_update"]
         self.translator.set_all_prompts(current_prompts)
         messagebox.showinfo(lang_texts.get("reset_title", "Reset"), lang_texts.get("style_guide_prompts_reset_message", "Style guide prompts reset."))
+        self._update_translation_progress("log_reset_style_guide_prompts")
         
     def save_style_guide_prompts(self, generation_prompt, update_prompt):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1771,14 +1975,15 @@ class NovelTranslatorApp:
         current_prompts["style_guide_generation"] = generation_prompt.strip()
         current_prompts["style_guide_update"] = update_prompt.strip()
         self.translator.set_all_prompts(current_prompts)
-        self.save_prompts_to_file()
+        self.save_prompts_to_file() 
         messagebox.showinfo(lang_texts.get("save_title", "Save"), lang_texts.get("style_guide_prompts_saved_message", "Style guide prompts saved."))
+        self._update_translation_progress("log_save_style_guide_prompts")
 
     def show_style_guide_viewer(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
+        self._update_translation_progress("log_style_guide_viewer_opened")
         style_guide = self.translator.style_guide
-        # Check if style_guide is not None and has content
-        if not style_guide or not any(style_guide.values()): # Handles None or all-empty-values dict
+        if not style_guide or not any(style_guide.values()): 
             messagebox.showinfo(lang_texts.get("style_guide_title", "Style Guide"), lang_texts.get("no_style_guide_yet_message", "No style guide has been created or loaded yet."))
             return
 
@@ -1792,11 +1997,75 @@ class NovelTranslatorApp:
         try:
             pretty_json = json5.dumps(style_guide, ensure_ascii=False, indent=2)
         except Exception:
-            pretty_json = str(style_guide) # Fallback
+            pretty_json = str(style_guide) 
         text_area.insert(tk.END, pretty_json)
         text_area.config(state='disabled')
         self.style_guide_viewer_window_widget.close_button = ttk.Button(frame, text=lang_texts.get("close_button", "Close"), command=self.style_guide_viewer_window_widget.destroy)
         self.style_guide_viewer_window_widget.close_button.pack(pady=10)
+
+    def show_user_terms_editor(self):
+        lang_texts = self.ui_texts.get(self.current_app_language, {})
+        self._update_translation_progress("log_user_terms_editor_opened")
+        
+        self.terms_window = tk.Toplevel(self.root)
+        self.terms_window.title(lang_texts.get("user_terms_editor_title", "Terminology Editor"))
+        self.terms_window.geometry("600x500")
+
+        main_frame = ttk.Frame(self.terms_window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        terms_text = scrolledtext.ScrolledText(main_frame, wrap=tk.WORD, width=70, height=20)
+        terms_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        terms_text.insert(tk.END, self.user_defined_terms)
+
+        explanation_label = ttk.Label(main_frame, text=lang_texts.get("user_terms_explanation", "Enter terms one per line, format: Original Term:Translation"), wraplength=580)
+        explanation_label.pack(fill=tk.X, padx=5, pady=(5, 10))
+
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=5)
+
+        def save_terms():
+            self.user_defined_terms = terms_text.get("1.0", tk.END).strip()
+            self._update_translation_progress("log_user_terms_saved")
+            messagebox.showinfo(lang_texts.get("user_terms_saved_title", "Terms Saved"), 
+                                lang_texts.get("user_terms_saved_message", "User-defined terms have been saved successfully."))
+            self.terms_window.destroy()
+
+        def export_terms():
+            file_path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text files", "*.txt")], title=lang_texts.get("export_user_terms_title", "Export Terms"))
+            if file_path:
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(terms_text.get("1.0", tk.END))
+                    self._update_translation_progress("log_user_terms_exported", filename=os.path.basename(file_path))
+                    messagebox.showinfo(lang_texts.get("user_terms_exported_title", "Export Successful"), 
+                                        lang_texts.get("user_terms_exported_message", "The terms have been exported to the file successfully."))
+                except Exception as e:
+                    messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("export_error_message", "Export error: {error}").format(error=str(e)))
+
+        def import_terms():
+            file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")], title=lang_texts.get("import_user_terms_title", "Import Terms"))
+            if file_path:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        terms_text.delete("1.0", tk.END)
+                        terms_text.insert("1.0", content)
+                    self._update_translation_progress("log_user_terms_imported", filename=os.path.basename(file_path))
+                    messagebox.showinfo(lang_texts.get("user_terms_imported_title", "Import Successful"), 
+                                        lang_texts.get("user_terms_imported_message", "The terms have been loaded from the file successfully."))
+                except Exception as e:
+                    messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("import_error_message", "Import error: {error}").format(error=str(e)))
+
+        save_button = ttk.Button(button_frame, text=lang_texts.get("save_button", "Save"), command=save_terms)
+        save_button.pack(side=tk.LEFT, padx=5)
+        
+        export_button = ttk.Button(button_frame, text=lang_texts.get("export_button", "Export"), command=export_terms)
+        export_button.pack(side=tk.LEFT, padx=5)
+
+        import_button = ttk.Button(button_frame, text=lang_texts.get("import_button", "Import"), command=import_terms)
+        import_button.pack(side=tk.LEFT, padx=5)
+
 
 if __name__ == "__main__":
     root = tk.Tk()
