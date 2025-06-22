@@ -20,3 +20,5 @@ langdetect>=1.0.9
 # - os
 # - threading
 # - json (replaced by json5 in this project)
+
+# Note: tkinter is part of the Python standard library (included with most Python installations, especially on Windows). On some Linux distributions, you may need to install it manually (e.g., 'sudo apt-get install python3-tk').

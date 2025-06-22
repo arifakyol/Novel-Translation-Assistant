@@ -592,8 +592,18 @@ class NovelTranslatorApp:
             
             custom_splitter = self.custom_splitter_var.get()
                 
-            analysis_summary, self.novel_sections, self.cultural_context, self.main_themes, self.setting_atmosphere, error_message = self.analyzer.analyze(content, genre, "", custom_splitter)
-            
+            analysis_summary, sections, self.cultural_context, self.main_themes, self.setting_atmosphere, error_message = self.analyzer.analyze(content, genre, "", custom_splitter)
+
+            self.novel_sections = []
+            for section in sections:
+                self.novel_sections.append({
+                    "type": section.get("type", "unknown"),
+                    "text": section.get("text", ""),
+                    "translation_successful": False,
+                    "translated_text": "",
+                    "back_translated_text": ""
+                })
+
             self.characters = self.analyzer.get_characters()
             self.analysis_text.delete(1.0, tk.END)
             
@@ -703,13 +713,18 @@ class NovelTranslatorApp:
     def _run_translation_in_background(self, max_retries, target_country_code, user_defined_terms):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         try:
-            total_sections = len(self.novel_sections)
-            for current_section_index, section in enumerate(self.novel_sections):
+            sections_to_translate = [
+                (i, s) for i, s in enumerate(self.novel_sections) if not s.get("translation_successful")
+            ]
+            total_sections_to_translate = len(sections_to_translate)
+
+            for idx, (current_section_index, section) in enumerate(sections_to_translate):
                 if self.stop_event.is_set(): break
+                
                 original_text = section["text"]
                 section_type = section["type"]
                 
-                self._update_translation_progress("translating_section_progress", current_section_index + 1, total_sections, current=current_section_index + 1, total=total_sections, type=section_type)
+                self._update_translation_progress("translating_section_progress", idx + 1, total_sections_to_translate, current=idx + 1, total=total_sections_to_translate, type=section_type)
 
                 translation_result, stages = self.translator.translate_section(
                     section_data=section,
@@ -721,32 +736,36 @@ class NovelTranslatorApp:
                     source_language=self.original_detected_language_code,
                     target_language=self.available_languages[self.target_language_var.get()],
                     target_country=target_country_code,
-                    progress_callback=lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, current_section_index + 1, total_sections, **kwargs),
+                    progress_callback=lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, idx + 1, total_sections_to_translate, **kwargs),
                     stop_event=self.stop_event,
                     max_retries=max_retries,
                     user_defined_terms=user_defined_terms
                 )
 
                 if self.stop_event.is_set():
-                    self._update_translation_progress("log_translation_process_stopped_mid_section", current=current_section_index + 1, total=total_sections)
+                    self._update_translation_progress("log_translation_process_stopped_mid_section", current=idx + 1, total=total_sections_to_translate)
                     break
                 
-                self.translated_sections.append({"type": section_type, "text": translation_result, "stages": stages})
-                
-                # Sadece geçerli bir çeviri varsa geri çeviri yap
+                section["translated_text"] = translation_result
+                section["translation_successful"] = True 
+
                 back_translated = ""
-                if translation_result != original_text:
+                if translation_result and translation_result != original_text:
                     back_translated = self.translator.back_translate(
                         translation_result, self.available_languages[self.target_language_var.get()],
                         self.analyzer.get_detected_language(),
-                        lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, current_section_index + 1, total_sections, **kwargs)
+                        lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, idx + 1, total_sections_to_translate, **kwargs)
                     )
-                self.back_translated_sections.append({"type": section_type, "text": back_translated})
+                section["back_translated_text"] = back_translated
+                
                 self.root.after(0, self._append_translated_chapter, original_text, translation_result, back_translated)
                 
-                progress_percent = ((current_section_index + 1) / total_sections) * 100
+                progress_percent = ((idx + 1) / total_sections_to_translate) * 100
                 self.progress_var.set(progress_percent)
-                self._update_translation_progress("section_completed_progress", current_section_index + 1, total_sections, current=current_section_index + 1, total=total_sections)
+                self._update_translation_progress("section_completed_progress", idx + 1, total_sections_to_translate, current=idx + 1, total=total_sections_to_translate)
+                
+                if hasattr(self, 'section_window_widget') and self.section_window_widget.winfo_exists():
+                    self.root.after(0, self.update_section_listbox)
         except Exception as e:
             self._update_translation_progress("translation_error_progress", 0, 0, error=str(e))
         finally:
@@ -825,10 +844,61 @@ class NovelTranslatorApp:
         self.back_translation_text.config(state='disabled')
         self.back_translation_text.see(tk.END)
         self.root.update_idletasks()
+
+    def _run_single_translation_in_background(self, section_index):
+        lang_texts = self.ui_texts.get(self.current_app_language, {})
+        section = self.novel_sections[section_index]
+        original_text = section["text"]
+        
+        self._update_translation_progress("translating_section_progress", section_index + 1, len(self.novel_sections), current=section_index + 1, total=len(self.novel_sections), type=section["type"])
+
+        try:
+            translation_result, stages = self.translator.translate_section(
+                section_data=section,
+                genre=self.genre_var.get(),
+                characters_json_str=json5.dumps(self.characters),
+                cultural_context_json_str=json5.dumps(self.cultural_context),
+                main_themes_json_str=json5.dumps(self.main_themes),
+                setting_atmosphere_json_str=json5.dumps(self.setting_atmosphere),
+                source_language=self.original_detected_language_code,
+                target_language=self.available_languages[self.target_language_var.get()],
+                target_country=self.available_countries.get(self.target_country_var.get(), "US"),
+                progress_callback=lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, **kwargs),
+                stop_event=self.stop_event,
+                max_retries=self.retries_var.get(),
+                user_defined_terms=self.user_defined_terms
+            )
+
+            section["translated_text"] = translation_result
+            section["translation_successful"] = True
+
+            back_translated = ""
+            if translation_result and translation_result != original_text:
+                back_translated = self.translator.back_translate(
+                    translation_result, self.available_languages[self.target_language_var.get()],
+                    self.analyzer.get_detected_language(),
+                    lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, **kwargs)
+                )
+            section["back_translated_text"] = back_translated
+
+            def update_ui():
+                self.on_section_select(None) 
+                self.update_section_listbox()
+                messagebox.showinfo(lang_texts.get("translation_complete_title", "Translation Complete"), 
+                                    lang_texts.get("section_translation_complete_message", "Section {index} has been translated.").format(index=section_index + 1))
+
+            self.root.after(0, update_ui)
+
+        except Exception as e:
+            section["translation_successful"] = False
+            self._update_translation_progress("translation_error_progress", error=str(e))
+            messagebox.showerror(lang_texts.get("translation_error_title", "Translation Error"), str(e))
+        finally:
+            self._update_translation_progress("section_completed_progress", current=section_index + 1, total=len(self.novel_sections))
             
     def save_translation(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
-        if not self.translated_sections:
+        if not any(s.get("translation_successful") for s in self.novel_sections):
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("no_translated_content_to_save_warning", "No translated content to save."))
             return
         self._update_translation_progress("log_saving_translation_start")
@@ -836,8 +906,8 @@ class NovelTranslatorApp:
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as file:
-                    for section in self.translated_sections:
-                        file.write(section["text"] + "\n\n")
+                    for section in self.novel_sections:
+                        file.write(section.get("translated_text", "") + "\n\n")
                 self.status_var.set(lang_texts.get("translation_saved_to_status", "Translation saved to: {filename}").format(filename=os.path.basename(file_path)))
                 messagebox.showinfo(lang_texts.get("save_complete_title", "Save Complete"), lang_texts.get("save_complete_message", "File saved successfully."))
                 self._update_translation_progress("log_saving_translation_success", filename=os.path.basename(file_path))
@@ -848,7 +918,7 @@ class NovelTranslatorApp:
 
     def save_back_translation(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
-        if not self.back_translated_sections:
+        if not any(s.get("translation_successful") for s in self.novel_sections):
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("no_back_translated_content_to_save_warning", "No back-translated content to save."))
             return
         self._update_translation_progress("log_saving_back_translation_start")
@@ -856,8 +926,8 @@ class NovelTranslatorApp:
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as file:
-                    for section in self.back_translated_sections:
-                        file.write(section["text"] + "\n\n")
+                    for section in self.novel_sections:
+                        file.write(section.get("back_translated_text", "") + "\n\n")
                 self.status_var.set(lang_texts.get("back_translation_saved_to_status", "Back-translation saved to: {filename}").format(filename=os.path.basename(file_path)))
                 messagebox.showinfo(lang_texts.get("save_complete_title", "Save Complete"), lang_texts.get("back_translation_saved_message", "Back-translation saved successfully."))
                 self._update_translation_progress("log_saving_back_translation_success", filename=os.path.basename(file_path))
@@ -1658,20 +1728,37 @@ class NovelTranslatorApp:
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         self.sections_list_frame_widget = ttk.LabelFrame(main_frame, text=lang_texts.get("sections_label", "Sections"), padding="5")
-        self.sections_list_frame_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        self.sections_list_frame_widget.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5), anchor='n')
 
-        scrollbar = ttk.Scrollbar(self.sections_list_frame_widget)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.section_listbox = tk.Listbox(self.sections_list_frame_widget, yscrollcommand=scrollbar.set, width=30)
-        self.section_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=self.section_listbox.yview)
+        self.section_tree = ttk.Treeview(self.sections_list_frame_widget, columns=("type", "translated"), show="headings")
+        self.section_tree.heading("#0", text="#")
+        self.section_tree.heading("type", text=lang_texts.get("section_type_header", "Type"))
+        self.section_tree.heading("translated", text=lang_texts.get("translated_status_header", "Translated"))
+        self.section_tree.column("#0", width=40, anchor='center')
+        self.section_tree.column("type", width=150)
+        self.section_tree.column("translated", width=80, anchor='center')
+        self.section_tree.pack(fill=tk.BOTH, expand=True)
 
         self.section_edit_frame_widget = ttk.LabelFrame(main_frame, text=lang_texts.get("section_content_label", "Content"), padding="5")
         self.section_edit_frame_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.section_text = scrolledtext.ScrolledText(self.section_edit_frame_widget, wrap=tk.WORD, width=60, height=30)
+        self.section_notebook = ttk.Notebook(self.section_edit_frame_widget)
+        self.section_notebook.pack(fill=tk.BOTH, expand=True)
+
+        self.original_tab = ttk.Frame(self.section_notebook)
+        self.translated_tab = ttk.Frame(self.section_notebook)
+        self.back_translation_tab = ttk.Frame(self.section_notebook)
+
+        self.section_notebook.add(self.original_tab, text=lang_texts.get("original_content_tab", "Original"))
+        self.section_notebook.add(self.translated_tab, text=lang_texts.get("translated_content_tab", "Translated"))
+        self.section_notebook.add(self.back_translation_tab, text=lang_texts.get("back_translation_content_tab", "Back-Translation"))
+
+        self.section_text = scrolledtext.ScrolledText(self.original_tab, wrap=tk.WORD, width=60, height=30)
         self.section_text.pack(fill=tk.BOTH, expand=True)
+        self.translated_section_text = scrolledtext.ScrolledText(self.translated_tab, wrap=tk.WORD, width=60, height=30)
+        self.translated_section_text.pack(fill=tk.BOTH, expand=True)
+        self.back_translated_section_text = scrolledtext.ScrolledText(self.back_translation_tab, wrap=tk.WORD, width=60, height=30)
+        self.back_translated_section_text.pack(fill=tk.BOTH, expand=True)
 
         button_frame = ttk.Frame(self.section_edit_frame_widget)
         button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
@@ -1682,61 +1769,98 @@ class NovelTranslatorApp:
         self.section_window_widget.delete_button.pack(side=tk.LEFT, padx=5)
         self.section_window_widget.save_button = ttk.Button(button_frame, text=lang_texts.get("save_changes_button", "Save Changes"), command=self.save_sections)
         self.section_window_widget.save_button.pack(side=tk.LEFT, padx=5)
+        self.section_window_widget.translate_button = ttk.Button(button_frame, text=lang_texts.get("translate_button", "Translate"), command=self.translate_single_section)
+        self.section_window_widget.translate_button.pack(side=tk.LEFT, padx=5)
         self.section_window_widget.export_button = ttk.Button(button_frame, text=lang_texts.get("export_button", "Export"), command=self.export_sections)
         self.section_window_widget.export_button.pack(side=tk.LEFT, padx=5)
         self.section_window_widget.import_button = ttk.Button(button_frame, text=lang_texts.get("import_button", "Import"), command=self.import_sections)
         self.section_window_widget.import_button.pack(side=tk.LEFT, padx=5)
 
-        self.update_section_listbox() 
-        self.section_listbox.bind('<<ListboxSelect>>', self.on_section_select)
+        self.update_section_listbox()
+        self.section_tree.bind('<<TreeviewSelect>>', self.on_section_select)
 
     def update_section_listbox(self):
         self._update_translation_progress("log_section_list_updated")
         lang_texts = self.ui_texts.get(self.current_app_language, {})
-        self.section_listbox.delete(0, tk.END)
-        for i, section in enumerate(self.novel_sections, 1):
+        self.section_tree.delete(*self.section_tree.get_children())
+        for i, section in enumerate(self.novel_sections):
             section_type = section.get("type", lang_texts.get("unknown_section_type", "Unknown"))
-            self.section_listbox.insert(tk.END, f"{i}. {section_type}")
+            is_translated_text = "✓" if section.get("translation_successful") else "✗"
+            self.section_tree.insert("", "end", iid=i, text=str(i + 1), values=(section_type, is_translated_text))
 
     def on_section_select(self, event):
-        if not self.section_listbox.curselection():
+        if not self.section_tree.selection():
             return
-        index = self.section_listbox.curselection()[0]
+        selected_item = self.section_tree.selection()[0]
+        index = int(selected_item)
         self._update_translation_progress("log_section_selected", index=index + 1)
         section = self.novel_sections[index]
         self.section_text.delete("1.0", tk.END)
-        self.section_text.insert("1.0", section["text"])
+        self.section_text.insert("1.0", section.get("text", ""))
+        self.translated_section_text.delete("1.0", tk.END)
+        self.translated_section_text.insert("1.0", section.get("translated_text", ""))
+        self.back_translated_section_text.delete("1.0", tk.END)
+        self.back_translated_section_text.insert("1.0", section.get("back_translated_text", ""))
 
     def add_section(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
-        new_section = {"type": lang_texts.get("new_section_default_type", "New Section"), "text": ""}
+        new_section = {
+            "type": lang_texts.get("new_section_default_type", "New Section"),
+            "text": "",
+            "translation_successful": False,
+            "translated_text": "",
+            "back_translated_text": ""
+        }
         self.novel_sections.append(new_section)
-        self.update_section_listbox() 
-        self.section_listbox.selection_set(len(self.novel_sections) - 1)
-        self.section_listbox.see(len(self.novel_sections) - 1)
-        self.on_section_select(None) 
+        self.update_section_listbox()
+        new_index = len(self.novel_sections) - 1
+        self.section_tree.selection_set(new_index)
+        self.section_tree.see(new_index)
+        self.on_section_select(None)
         self._update_translation_progress("log_section_added")
 
     def delete_section(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
-        if not self.section_listbox.curselection():
+        if not self.section_tree.selection():
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("select_section_to_delete_warning", "Please select a section to delete!"))
             return
-        index = self.section_listbox.curselection()[0]
+        selected_item = self.section_tree.selection()[0]
+        index = int(selected_item)
         del self.novel_sections[index]
-        self.update_section_listbox() 
+        self.update_section_listbox()
         self.section_text.delete("1.0", tk.END)
+        self.translated_section_text.delete("1.0", tk.END)
+        self.back_translated_section_text.delete("1.0", tk.END)
         self._update_translation_progress("log_section_deleted", index=index + 1)
 
     def save_sections(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
-        if not self.section_listbox.curselection():
+        if not self.section_tree.selection():
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("select_section_to_save_warning", "Please select a section to save changes to!"))
             return
-        index = self.section_listbox.curselection()[0]
+        selected_item = self.section_tree.selection()[0]
+        index = int(selected_item)
         self.novel_sections[index]["text"] = self.section_text.get("1.0", tk.END).strip()
+        self.novel_sections[index]["translated_text"] = self.translated_section_text.get("1.0", tk.END).strip()
+        self.novel_sections[index]["back_translated_text"] = self.back_translated_section_text.get("1.0", tk.END).strip()
         messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("changes_saved_message", "Changes saved!"))
         self._update_translation_progress("log_section_changes_saved", index=index + 1)
+
+    def translate_single_section(self):
+        lang_texts = self.ui_texts.get(self.current_app_language, {})
+        if not self.section_tree.selection():
+            messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("select_section_to_translate_warning", "Please select a section to translate!"))
+            return
+        selected_item = self.section_tree.selection()[0]
+        index = int(selected_item)
+
+        # Değişiklikleri çevirmeden hemen önce kaydet
+        self.novel_sections[index]["text"] = self.section_text.get("1.0", tk.END).strip()
+        self.novel_sections[index]["translated_text"] = self.translated_section_text.get("1.0", tk.END).strip()
+        self.novel_sections[index]["back_translated_text"] = self.back_translated_section_text.get("1.0", tk.END).strip()
+        self._update_translation_progress("log_section_changes_saved", index=index + 1)
+        
+        threading.Thread(target=self._run_single_translation_in_background, args=(index,), daemon=True).start()
 
     def export_sections(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
