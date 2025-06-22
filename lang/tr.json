@@ -372,5 +372,12 @@
   "log_back_translation_started": "Geri çeviri yapılıyor...",
   "log_back_translation_success": "Geri çeviri tamamlandı.",
   "log_back_translation_error": "Geri çeviri hatası: {error}",
-  "back_translation_error_placeholder": "Geri çeviri hatası"
+  "back_translation_error_placeholder": "Geri çeviri hatası",
+  "section_type_header": "Tür",
+  "translated_status_header": "Çevrildi",
+  "original_content_tab": "Orijinal İçerik",
+  "translated_content_tab": "Çevrilmiş İçerik",
+  "back_translation_content_tab": "Geri Çeviri (doğrulama için)",
+  "select_section_to_translate_warning": "Lütfen çevirmek için bir bölüm seçin!",
+  "section_translation_complete_message": "{index}. bölüm çevrildi."
 }

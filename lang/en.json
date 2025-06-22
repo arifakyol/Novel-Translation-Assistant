@@ -371,5 +371,12 @@
   "log_back_translation_started": "Back-translating...",
   "log_back_translation_success": "Back-translation complete.",
   "log_back_translation_error": "Back-translation error: {error}",
-  "back_translation_error_placeholder": "Back-translation error"
+  "back_translation_error_placeholder": "Back-translation error",
+  "section_type_header": "Type",
+  "translated_status_header": "Translated",
+  "original_content_tab": "Original Content",
+  "translated_content_tab": "Translated Content",
+  "back_translation_content_tab": "Back-Translation (for verification)",
+  "select_section_to_translate_warning": "Please select a section to translate!",
+  "section_translation_complete_message": "Section {index} has been translated."
 }
