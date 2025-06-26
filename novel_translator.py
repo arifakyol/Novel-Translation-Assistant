@@ -1,6 +1,8 @@
 import re
 import os
 import tkinter as tk
+import webbrowser
+import tkinter.font as tkFont
 import datetime
 from tkinter import ttk, scrolledtext, filedialog, messagebox
 import threading
@@ -106,9 +108,20 @@ class NovelTranslatorApp:
         self.create_analysis_section(self.input_analysis_frame, 1)
         self.create_translation_section()
         
+        # Status bar and GitHub link
+        status_frame = ttk.Frame(root)
+        status_frame.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        status_frame.grid_columnconfigure(0, weight=1)
+
         self.status_var = tk.StringVar()
-        self.status_bar = ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN)
-        self.status_bar.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        self.status_bar = ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN)
+        self.status_bar.grid(row=0, column=0, sticky=(tk.W, tk.E))
+
+        github_link = "https://github.com/arifakyol/Novel-Translation-Assistant"
+        link_font = tkFont.Font(family="Helvetica", size=9, underline=True)
+        github_label = tk.Label(status_frame, text="GitHub", fg="blue", cursor="hand2", font=link_font)
+        github_label.grid(row=0, column=1, sticky=tk.E, padx=5)
+        github_label.bind("<Button-1>", lambda e: webbrowser.open_new(github_link))
         
         self.progress_text = scrolledtext.ScrolledText(self.main_frame, height=5, state='disabled')
         self.progress_text.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
@@ -797,11 +810,11 @@ class NovelTranslatorApp:
                 section["localized_text"] = translation_results.get("final", "")
                 final_translation = translation_results.get("final", "")
                 
+                back_translated = ""
                 # Sadece çeviri durdurulmadıysa ve başarılıysa bölümü güncelle
                 if not self.stop_event.is_set() and final_translation:
                     section["translated_text"] = final_translation
                     section["translation_successful"] = True
-                    back_translated = ""
                     if final_translation and final_translation != original_text:
                         back_translated = self.translator.back_translate(
                             final_translation, self.available_languages[self.target_language_var.get()],
@@ -810,19 +823,10 @@ class NovelTranslatorApp:
                             max_retries=max_retries
                         )
                     section["back_translated_text"] = back_translated
-                    self.root.after(0, self._append_translated_chapter, original_text, final_translation, back_translated)
                 else:
                     # Çeviri durdurulduysa veya başarısızsa, başarı durumunu false yap
                     section["translation_successful"] = False
-                back_translated = ""
-                if final_translation and final_translation != original_text:
-                    back_translated = self.translator.back_translate(
-                        final_translation, self.available_languages[self.target_language_var.get()],
-                        self.analyzer.get_detected_language(),
-                        lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, idx + 1, total_sections_to_translate, **kwargs),
-                        max_retries=max_retries
-                    )
-                section["back_translated_text"] = back_translated
+                    section["back_translated_text"] = "" # Geri çeviriyi de temizle
                 
                 self.root.after(0, self._append_translated_chapter, original_text, final_translation, back_translated)
                 
@@ -968,37 +972,30 @@ class NovelTranslatorApp:
             section["line_edited_text"] = translation_results.get("edited", "")
             section["localized_text"] = translation_results.get("final", "")
             final_translation = translation_results.get("final", "")
+            back_translated = translation_results.get("back_translation", "") # Geri çeviri sonucunu al
 
             # Sadece çeviri durdurulmadıysa ve başarılıysa bölümü güncelle
             if not self.stop_event.is_set() and final_translation:
                 section["translated_text"] = final_translation
                 section["translation_successful"] = True
-                back_translated = ""
-                if final_translation and final_translation != original_text:
-                    back_translated = self.translator.back_translate(
-                        final_translation, self.available_languages[self.target_language_var.get()],
-                        self.analyzer.get_detected_language(),
-                        lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, **kwargs),
-                        max_retries=self.retries_var.get()
-                    )
                 section["back_translated_text"] = back_translated
             else:
                 # Çeviri durdurulduysa veya başarısızsa, başarı durumunu false yap
                 section["translation_successful"] = False
-            back_translated = ""
-            if final_translation and final_translation != original_text:
-                back_translated = self.translator.back_translate(
-                    final_translation, self.available_languages[self.target_language_var.get()],
-                    self.analyzer.get_detected_language(),
-                    lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, **kwargs),
-                    max_retries=self.retries_var.get()
-                )
-            section["back_translated_text"] = back_translated
+                section["back_translated_text"] = "" # Geri çeviriyi de temizle
 
             def update_ui():
                 # Pencerenin hala var olup olmadığını kontrol et
                 if hasattr(self, 'section_window_widget') and self.section_window_widget.winfo_exists():
                     self.update_section_listbox()
+                    # Seçili bölümün bilgilerini yenilemek için on_section_select'i yeniden tetikle
+                    try:
+                        # Mevcut seçimi koru ve olayı tetikle
+                        selected_item = self.section_tree.selection()[0]
+                        if int(selected_item) == section_index:
+                           self.on_section_select(None)
+                    except (IndexError, tk.TclError):
+                        pass # Seçim yoksa veya hata olursa devam et
                 # Sadece çeviri durdurulmadıysa başarı mesajı göster
                 if not self.stop_event.is_set():
                     messagebox.showinfo(lang_texts.get("translation_complete_title", "Translation Complete"), 
@@ -1025,13 +1022,15 @@ class NovelTranslatorApp:
         stage_map = {
             "initial": "initial_translation_text",
             "edited": "line_edited_text",
-            "final": "localized_text"
+            "final": "localized_text",
+            "back_translation": "back_translated_text" # Geri çeviri için eklendi
         }
         
         widget_map = {
             "initial": "initial_translation_section_text",
             "edited": "line_edit_section_text",
-            "final": "localization_section_text"
+            "final": "localization_section_text",
+            "back_translation": "back_translated_section_text" # Geri çeviri için eklendi
         }
 
         if stage in stage_map:

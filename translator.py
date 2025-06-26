@@ -578,10 +578,11 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
                     if attempt >= max_retries - 1:
                         return {"initial": original_section_text, "edited": "", "final": ""}, stages
 
-        if not initial_translation: return {"initial": original_section_text, "edited": "", "final": ""}, stages
+        if not initial_translation: 
+            return {"initial": original_section_text, "edited": "", "final": "", "back_translation": ""}, stages
         if stop_event and stop_event.is_set():
             if progress_callback: progress_callback("Translation stopped by user.\n")
-            return {"initial": initial_translation, "edited": "", "final": ""}, stages
+            return {"initial": initial_translation, "edited": "", "final": "", "back_translation": ""}, stages
 
         # Stage 2: Line Editing
         if line_edit_override:
@@ -625,10 +626,11 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
                     if attempt >= max_retries - 1:
                         return {"initial": initial_translation, "edited": "", "final": ""}, stages # Return last successful stage result
 
-        if not line_edited: return {"initial": initial_translation, "edited": "", "final": ""}, stages
+        if not line_edited: 
+            return {"initial": initial_translation, "edited": "", "final": "", "back_translation": ""}, stages
         if stop_event and stop_event.is_set():
             if progress_callback: progress_callback("Translation stopped by user.\n")
-            return {"initial": initial_translation, "edited": line_edited, "final": ""}, stages
+            return {"initial": initial_translation, "edited": line_edited, "final": "", "back_translation": ""}, stages
 
         # Stage 3: Cultural Localization
         if localization_override:
@@ -672,10 +674,11 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
                     if attempt >= max_retries - 1:
                         return {"initial": initial_translation, "edited": line_edited, "final": ""}, stages # Return last successful stage result
 
-        if not final_translation: return {"initial": initial_translation, "edited": line_edited, "final": ""}, stages
+        if not final_translation: 
+            return {"initial": initial_translation, "edited": line_edited, "final": "", "back_translation": ""}, stages
         if stop_event and stop_event.is_set():
             if progress_callback: progress_callback("Translation stopped by user.\n")
-            return {"initial": initial_translation, "edited": line_edited, "final": final_translation}, stages
+            return {"initial": initial_translation, "edited": line_edited, "final": final_translation, "back_translation": ""}, stages
 
         # Stil rehberini çevrilen metinle dinamik olarak güncelle
         self.update_style_guide(
@@ -686,10 +689,18 @@ YOUR RESPONSE MUST BEGIN WITH THE FIRST WORD OF THE BACK-TRANSLATION AND END WIT
         )
         print(f"DEBUG: Dynamic style guide update completed for section type '{section_type}'.")
         
+        # Geri çeviriyi yap ve sonucu callback ile gönder
+        back_translated_text = self.back_translate(
+            final_translation, target_language, source_language, progress_callback, max_retries
+        )
+        if intermediate_callback:
+            intermediate_callback("back_translation", back_translated_text)
+
         translation_results = {
             "initial": initial_translation,
             "edited": line_edited,
-            "final": final_translation
+            "final": final_translation,
+            "back_translation": back_translated_text
         }
         return translation_results, stages
 
