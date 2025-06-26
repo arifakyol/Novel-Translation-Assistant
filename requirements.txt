@@ -1,24 +1,15 @@
 # Core dependencies
-python-dotenv>=1.0.0
-json5>=0.9.14
-
-# AI/ML libraries
-google-generativeai>=0.3.2
-openai>=1.12.0
-
-# Language detection
-langdetect>=1.0.9
-
-# GUI framework
-# tkinter is part of the Python standard library and is included by default on Windows and most Python installations.
-# On some Linux distributions, you may need to install it manually (e.g., 'sudo apt-get install python3-tk').
-
-# Note: The following are part of Python standard library and don't need to be installed:
-# - re (regular expressions)
-# - time
-# - typing
-# - os
-# - threading
-# - json (replaced by json5 in this project)
-
-# Note: tkinter is part of the Python standard library (included with most Python installations, especially on Windows). On some Linux distributions, you may need to install it manually (e.g., 'sudo apt-get install python3-tk').
+re
+os
+threading
+tkinter
+logging
+dotenv
+json5
+langdetect
+openai
+google-generativeai
+# For type hints
+typing
+# For GUI
+# (tkinter is included in standard library, but listed for clarity)

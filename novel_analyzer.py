@@ -6,6 +6,9 @@ from langdetect.lang_detect_exception import LangDetectException
 import os
 from dotenv import load_dotenv
 import json5 # json yerine json5 kullanıldı
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Import necessary libraries based on potential AI models
 import google.generativeai as genai
@@ -57,14 +60,14 @@ class NovelAnalyzer:
                 HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
             }
-            print(f"DEBUG: Using Gemini model for analysis: {model_name}.")
+            logger.debug(f"Using Gemini model for analysis: {model_name}.")
         elif self.ai_model == "chatgpt":
             if not self.openai_api_key:
                 raise ValueError("error_openai_api_key_not_found")
             openai.api_key = self.openai_api_key
             model_name = self.allowed_model if (self.allowed_model and self.ai_model == "chatgpt") else "gpt-4o-mini"
             self.model = model_name
-            print(f"DEBUG: Using OpenAI model for analysis: {model_name}.")
+            logger.debug(f"Using OpenAI model for analysis: {model_name}.")
         else:
             raise ValueError(f"error_unsupported_ai_model:{self.ai_model}")
         
@@ -118,7 +121,7 @@ class NovelAnalyzer:
             elif raw_response_text.startswith('```') and raw_response_text.endswith('```'):
                  raw_response_text = raw_response_text[len('```'):-len('```')].strip()
 
-            print(f"DEBUG: _analyze_characters Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
+            logger.debug(f"_analyze_characters Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
             
             if not raw_response_text:
                 raise ValueError("error_ai_empty_response")
@@ -143,7 +146,7 @@ class NovelAnalyzer:
             return characters_dict, None
         except Exception as e:
             error_msg = f"analyzer_char_error_prefix:{str(e)}"
-            print(error_msg)
+            logger.error(error_msg, exc_info=True)
             return {}, error_msg
 
     def _analyze_cultural_context(self, text: str) -> Tuple[Dict[str, str], str | None]:
@@ -171,7 +174,7 @@ class NovelAnalyzer:
             elif raw_response_text.startswith('```') and raw_response_text.endswith('```'):
                  raw_response_text = raw_response_text[len('```'):-len('```')].strip()
 
-            print(f"DEBUG: _analyze_cultural_context Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
+            logger.debug(f"_analyze_cultural_context Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
 
             if not raw_response_text:
                 raise ValueError("error_ai_empty_response")
@@ -184,7 +187,7 @@ class NovelAnalyzer:
             return cultural_context_data, None
         except Exception as e:
             error_msg = f"analyzer_cultural_error_prefix:{str(e)}"
-            print(error_msg)
+            logger.error(error_msg, exc_info=True)
             return {}, error_msg
 
     def _analyze_main_themes_and_motifs(self, text: str) -> Tuple[Dict[str, List[str]], str | None]:
@@ -212,7 +215,7 @@ class NovelAnalyzer:
             elif raw_response_text.startswith('```') and raw_response_text.endswith('```'):
                  raw_response_text = raw_response_text[len('```'):-len('```')].strip()
 
-            print(f"DEBUG: _analyze_main_themes_and_motifs Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
+            logger.debug(f"_analyze_main_themes_and_motifs Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
 
             if not raw_response_text:
                 raise ValueError("error_ai_empty_response")
@@ -225,7 +228,7 @@ class NovelAnalyzer:
             return themes_motifs_data, None
         except Exception as e:
             error_msg = f"analyzer_themes_error_prefix:{str(e)}"
-            print(error_msg)
+            logger.error(error_msg, exc_info=True)
             return {}, error_msg
 
     def _analyze_setting_and_atmosphere(self, text: str) -> Tuple[Dict[str, str], str | None]:
@@ -253,7 +256,7 @@ class NovelAnalyzer:
             elif raw_response_text.startswith('```') and raw_response_text.endswith('```'):
                  raw_response_text = raw_response_text[len('```'):-len('```')].strip()
 
-            print(f"DEBUG: _analyze_setting_and_atmosphere Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
+            logger.debug(f"_analyze_setting_and_atmosphere Cleaned AI Response (first 500 chars): {raw_response_text[:500]}...") # İlk 500 karakteri logla
 
             if not raw_response_text:
                 raise ValueError("error_ai_empty_response")
@@ -266,7 +269,7 @@ class NovelAnalyzer:
             return setting_atmosphere_data, None
         except Exception as e:
             error_msg = f"analyzer_setting_error_prefix:{str(e)}"
-            print(error_msg)
+            logger.error(error_msg, exc_info=True)
             return {}, error_msg
 
     def analyze(self, content: str, genre_input: str, characters_input: str, custom_splitter: str = None) -> Tuple[str, List[Dict[str, str]], Dict[str, str], Dict[str, List[str]], Dict[str, str], str | None]:
@@ -376,70 +379,76 @@ Bölüm Sayısı: {len(sections)}
         """
         return self.setting_atmosphere
 
-    def get_sections(self, text: str, max_words_per_section: int = 3000, paragraphs_per_sub_section: int = 10, custom_splitter: str = None) -> List[Dict[str, str]]:
+    def get_sections(self, text: str, max_words_per_section: int = 1000, custom_splitter: str = None) -> List[Dict[str, str]]:
         """
-        Hibrit bir yaklaşımla metni bölümlere ayırır:
-        1. Önce metni "Chapter", "Bölüm", "***" gibi yapısal ayraçlara veya kullanıcı tanımlı bir ayraca göre ana bölümlere ayırır.
-        2. Eğer bir ana bölüm belirlenen kelime limitini (max_words_per_section) aşıyorsa,
-           o bölümü daha küçük paragraf gruplarına ayırır.
-        Tüm bölümler, içeriği ne olursa olsun "novel_section" olarak etiketlenir.
+        Metni, çeviri için optimal boyutlarda bölümlere ayırır.
+
+        1.  Metni önce "Chapter", "Bölüm", "***" gibi yapısal ayraçlara veya kullanıcı 
+            tanımlı bir ayraca göre ana bölümlere ayırır.
+        2.  Her ana bölümü, kelime sayısını dikkate alarak daha küçük ve yönetilebilir 
+            alt bölümlere ayırır. Bir alt bölüm `max_words_per_section` sınırını 
+            aştığında, yeni bir alt bölüm başlatılır. Bu bölme işlemi, bir paragrafın 
+            ortasında değil, paragrafların arasında yapılır.
         """
         if not text.strip():
             return []
 
-        # 1. Adım: Metni yapısal ayraçlara göre ana bölümlere ayır.
+        # Adım 1: Metni yapısal ayraçlara göre ana bölümlere ayır
         if custom_splitter:
-            # Kullanıcı özel bir ayraç girdiyse, regex'te güvenli hale getir ve onu kullan.
             splitter_pattern = f'({re.escape(custom_splitter)})'
         else:
-            # Varsayılan yapısal ayraçları kullan.
             splitter_pattern = r'(\b(?:chapter|bölüm|kısım|part)\s*\d+\b.*?$|^\s*\*+\s*$|^\s*#+\s*$)'
         
-        # re.split ile metni böl, ayraçları da listeye dahil et.
-        # re.IGNORECASE -> büyük/küçük harf duyarsız yapar (?i) bayrağı yerine.
-        # re.MULTILINE -> ^ ve $'ın her satır için çalışmasını sağlar.
         parts = re.split(splitter_pattern, text, flags=re.MULTILINE | re.IGNORECASE)
         
-        main_sections = []
+        main_sections_text = []
         current_section_content = ""
-
-        # Bölünmüş parçaları birleştirerek ana bölümleri oluştur.
-        # parts listesi [metin, ayraç, metin, ayraç, ...] şeklinde gelir.
         for i, part in enumerate(parts):
-            if i % 2 == 1: # Bu bir ayraçtır.
+            if i % 2 == 1:  # Ayraç
                 if current_section_content.strip():
-                    main_sections.append(current_section_content.strip())
-                current_section_content = part # Yeni bölüm ayraçla başlar.
-            else: # Bu normal metindir.
+                    main_sections_text.append(current_section_content.strip())
+                current_section_content = part
+            else:  # Metin
                 current_section_content += part
         
         if current_section_content.strip():
-            main_sections.append(current_section_content.strip())
+            main_sections_text.append(current_section_content.strip())
 
-        # Eğer hiç ayraç bulunamazsa, tüm metni tek bir ana bölüm olarak ele al.
-        if not main_sections:
-            main_sections.append(text.strip())
+        if not main_sections_text:
+            main_sections_text.append(text.strip())
 
-        # 2. Adım: Uzun ana bölümleri daha küçük alt bölümlere ayır.
+        # Adım 2: Her ana bölümü kelime limitine göre alt bölümlere ayır
         final_sections = []
-        for section_text in main_sections:
-            word_count = len(section_text.split())
+        for section_text in main_sections_text:
+            # Paragrafları bir veya daha fazla yeni satır karakterine göre böl.
+            # Bu, hem boş satırla ayrılmış hem de sadece alt satıra geçerek
+            # oluşturulmuş paragrafları yakalar.
+            paragraphs = re.split(r'\n+', section_text.strip())
             
-            if word_count <= max_words_per_section:
-                # Bölüm yeterince kısaysa, olduğu gibi ekle.
-                final_sections.append({"type": "novel_section", "text": section_text})
-            else:
-                # Bölüm çok uzunsa, paragraf gruplarına ayır.
-                paragraphs = re.split(r'\n\s*\n', section_text)
-                sub_section_text = ""
+            current_sub_section_paragraphs = []
+            current_word_count = 0
+
+            for paragraph in paragraphs:
+                paragraph_word_count = len(paragraph.split())
                 
-                for i, para in enumerate(paragraphs):
-                    sub_section_text += para + "\n\n"
-                    # Belirli sayıda paragrafa ulaşıldığında veya son paragrafta
-                    if (i + 1) % paragraphs_per_sub_section == 0 or (i + 1) == len(paragraphs):
-                        if sub_section_text.strip():
-                            final_sections.append({"type": "novel_section", "text": sub_section_text.strip()})
-                        sub_section_text = ""
+                # Eğer mevcut alt bölüme bu paragrafı eklemek kelime limitini aşacaksa
+                # ve alt bölüm boş değilse, mevcut alt bölümü kaydet ve yenisini başlat.
+                if current_word_count > 0 and (current_word_count + paragraph_word_count) > max_words_per_section:
+                    sub_section_content = "\n\n".join(current_sub_section_paragraphs)
+                    final_sections.append({"type": "novel_section", "text": sub_section_content})
+                    
+                    # Yeni alt bölümü bu paragrafla başlat
+                    current_sub_section_paragraphs = [paragraph]
+                    current_word_count = paragraph_word_count
+                else:
+                    # Paragrafı mevcut alt bölüme ekle
+                    current_sub_section_paragraphs.append(paragraph)
+                    current_word_count += paragraph_word_count
+
+            # Döngü bittikten sonra kalan son alt bölümü de ekle
+            if current_sub_section_paragraphs:
+                sub_section_content = "\n\n".join(current_sub_section_paragraphs)
+                final_sections.append({"type": "novel_section", "text": sub_section_content})
 
         return final_sections
 

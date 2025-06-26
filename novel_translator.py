@@ -8,11 +8,25 @@ from novel_analyzer import NovelAnalyzer
 from translator import NovelTranslator
 from dotenv import load_dotenv
 import json5 # json yerine json5 kullanıldı
+import logging
+
+# Loglama yapılandırması
+# Program her çalıştığında log dosyasını sıfırlamak için mode='w' kullanılıyor.
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("app.log", mode='w', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 PROMPT_FILE = "prompts.json"
 
 class NovelTranslatorApp:
     def __init__(self, root):
+        logger.info("Uygulama başlatılıyor...")
         self.root = root
         self.root.geometry("1200x800")
         
@@ -28,7 +42,7 @@ class NovelTranslatorApp:
         self._load_languages_from_files()
 
         if not self.current_app_language:
-            print("UYARI: Dil dosyaları yüklenemedi veya varsayılan dil ayarlanamadı. İngilizce'ye dönülüyor.")
+            logger.warning("Dil dosyaları yüklenemedi veya varsayılan dil ayarlanamadı. İngilizce'ye dönülüyor.")
             self.ui_texts["en"] = {
                 "_language_name_": "English", "app_title": "Novel Translation Assistant - Language Error",
                 "app_language_label": "App Language:", "select_novel_file_button": "Select Novel File",
@@ -142,12 +156,12 @@ class NovelTranslatorApp:
                         if lang_code == "tr":
                             default_lang_code = "tr"
                 except Exception as e:
-                    print(f"Dil dosyası yüklenirken hata ({filepath}): {e}")
+                    logger.error(f"Dil dosyası yüklenirken hata ({filepath}): {e}")
                     self._update_translation_progress("log_lang_files_load_error", filename=filepath, error=str(e))
         
         if not self.app_languages:
             self._update_translation_progress("log_lang_files_load_empty")
-            print("UYARI: Geçerli dil dosyası bulunamadı. Temel İngilizce kullanılıyor.")
+            logger.warning("Geçerli dil dosyası bulunamadı. Temel İngilizce kullanılıyor.")
             self.ui_texts["en"] = {"_language_name_": "English", "app_title": "Novel Translator (Lang Error)"}
             self.app_languages["English"] = "en"
             self.current_app_language_var.set("English")
@@ -172,7 +186,7 @@ class NovelTranslatorApp:
             self._update_translation_progress("log_lang_changed", language_name=selected_lang_display_name)
             self.update_ui_texts()
         else:
-            print(f"Hata: Seçilen dil '{selected_lang_display_name}' app_languages içinde bulunamadı.")
+            logger.error(f"Hata: Seçilen dil '{selected_lang_display_name}' app_languages içinde bulunamadı.")
 
     def update_ui_texts(self):
         current_lang_name = self.current_app_language_var.get()
@@ -245,6 +259,8 @@ class NovelTranslatorApp:
             self.import_style_guide_button_widget.config(text=lang_texts.get("import_style_guide_button", "Import Style Guide"))
         if hasattr(self, 'stop_translation_button_widget'):
             self.stop_translation_button_widget.config(text=lang_texts.get("stop_translation_button", "Stop Translation"))
+        if hasattr(self, 'view_log_button_widget'):
+            self.view_log_button_widget.config(text=lang_texts.get("view_log_button", "View Logs"))
             
         if hasattr(self, 'char_window') and self.char_window.winfo_exists():
             self.char_window.title(lang_texts.get("character_editor_title", "Character Editor"))
@@ -289,6 +305,11 @@ class NovelTranslatorApp:
             self.section_window_widget.title(lang_texts.get("edit_sections_title", "Edit Sections"))
             if hasattr(self, 'sections_list_frame_widget'): self.sections_list_frame_widget.config(text=lang_texts.get("sections_label", "Sections"))
             if hasattr(self, 'section_edit_frame_widget'): self.section_edit_frame_widget.config(text=lang_texts.get("section_content_label", "Content"))
+            if hasattr(self, 'section_notebook'):
+                self.section_notebook.tab(self.original_tab, text=lang_texts.get("original_content_tab", "Original"))
+                self.section_notebook.tab(self.initial_translation_tab, text=lang_texts.get("initial_translation_optional_tab", "Initial Translation (Optional)"))
+                self.section_notebook.tab(self.translated_tab, text=lang_texts.get("translated_content_tab", "Translated"))
+                self.section_notebook.tab(self.back_translation_tab, text=lang_texts.get("back_translation_content_tab", "Back-Translation"))
             if hasattr(self.section_window_widget, 'add_button'): self.section_window_widget.add_button.config(text=lang_texts.get("add_section_button", "Add"))
             if hasattr(self.section_window_widget, 'delete_button'): self.section_window_widget.delete_button.config(text=lang_texts.get("delete_section_button", "Delete"))
             if hasattr(self.section_window_widget, 'save_button'): self.section_window_widget.save_button.config(text=lang_texts.get("save_changes_button", "Save Changes"))
@@ -322,6 +343,13 @@ class NovelTranslatorApp:
             if hasattr(self.style_guide_viewer_window_widget, 'close_button'): 
                  self.style_guide_viewer_window_widget.close_button.config(text=lang_texts.get("close_button", "Close"))
 
+        if hasattr(self, 'log_viewer_window') and self.log_viewer_window.winfo_exists():
+            self.log_viewer_window.title(lang_texts.get("log_viewer_title", "Application Logs"))
+            if hasattr(self.log_viewer_window, 'refresh_button'):
+                self.log_viewer_window.refresh_button.config(text=lang_texts.get("refresh_button", "Refresh"))
+            if hasattr(self.log_viewer_window, 'close_button'):
+                self.log_viewer_window.close_button.config(text=lang_texts.get("close_button", "Close"))
+
     def _validate_prompt_variables(self, prompt_name: str, prompt_text: str, allowed_vars: set) -> list:
         """
         Bir prompt metnindeki değişkenlerin izin verilenler listesinde olup olmadığını kontrol eder.
@@ -340,7 +368,7 @@ class NovelTranslatorApp:
             with open(PROMPT_FILE, 'r', encoding='utf-8') as f:
                 data = json5.load(f)
         except Exception as e:
-            print(f"Prompt dosyası yüklenirken hata: {e}")
+            logger.error(f"Prompt dosyası yüklenirken hata: {e}", exc_info=True)
             self._update_translation_progress("log_prompts_load_error", filename=PROMPT_FILE, error=str(e))
             messagebox.showerror(self.ui_texts.get("prompt_load_error_title", "Prompt Load Error"), 
                                  self.ui_texts.get("prompt_load_error_message", "Could not read or parse prompts.json: {error}").format(error=e))
@@ -435,7 +463,7 @@ class NovelTranslatorApp:
                 json5.dump(data, f, ensure_ascii=False, indent=4)
             self._update_translation_progress("log_prompts_save_success", filename=PROMPT_FILE)
         except Exception as e:
-            print(f"Prompt dosyası kaydedilirken hata: {e}")
+            logger.error(f"Prompt dosyası kaydedilirken hata: {e}", exc_info=True)
             self._update_translation_progress("log_prompts_save_error", filename=PROMPT_FILE, error=str(e))
 
     def create_input_section(self, frame, column):
@@ -566,6 +594,8 @@ class NovelTranslatorApp:
         self.import_style_guide_button_widget.pack(side=tk.LEFT, padx=5, pady=5)
         self.stop_translation_button_widget = ttk.Button(button_frame, text=current_lang_texts.get("stop_translation_button", "Stop Translation"), command=self.stop_translation_process)
         self.stop_translation_button_widget.pack(side=tk.LEFT, padx=5, pady=5)
+        self.view_log_button_widget = ttk.Button(button_frame, text=current_lang_texts.get("view_log_button", "View Logs"), command=self.show_log_viewer)
+        self.view_log_button_widget.pack(side=tk.LEFT, padx=5, pady=5)
         
     def load_novel(self):
         file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
@@ -601,7 +631,10 @@ class NovelTranslatorApp:
                     "text": section.get("text", ""),
                     "translation_successful": False,
                     "translated_text": "",
-                    "back_translated_text": ""
+                    "back_translated_text": "",
+                    "initial_translation_text": "",
+                    "line_edited_text": "",
+                    "localized_text": ""
                 })
 
             self.characters = self.analyzer.get_characters()
@@ -674,6 +707,7 @@ class NovelTranslatorApp:
             messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("select_novel_file_error", "Please select a novel file first!"))
             return
         
+        self.stop_event.clear() # Her yeni işlemde olayı temizle
         self._update_translation_progress("log_translation_process_started")
         try:
             genre = self.genre_var.get()
@@ -686,7 +720,6 @@ class NovelTranslatorApp:
             self.translation_text.delete(1.0, tk.END)
             self.translated_sections = []
             self.back_translated_sections = []
-            self.stop_event.clear()
 
             if not self.novel_sections:
                 messagebox.showwarning(lang_texts.get("translation_error_title", "Translation Error"), lang_texts.get("no_translatable_sections_warning", "No translatable sections found. Please analyze the novel first."))
@@ -712,22 +745,33 @@ class NovelTranslatorApp:
 
     def _run_translation_in_background(self, max_retries, target_country_code, user_defined_terms):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
-        try:
-            sections_to_translate = [
-                (i, s) for i, s in enumerate(self.novel_sections) if not s.get("translation_successful")
-            ]
-            total_sections_to_translate = len(sections_to_translate)
+        sections_to_translate = [
+            (i, s) for i, s in enumerate(self.novel_sections) if not s.get("translation_successful")
+        ]
+        total_sections_to_translate = len(sections_to_translate)
 
-            for idx, (current_section_index, section) in enumerate(sections_to_translate):
-                if self.stop_event.is_set(): break
-                
+        for idx, (current_section_index, section) in enumerate(sections_to_translate):
+            if self.stop_event.is_set():
+                self._update_translation_progress("log_translation_process_stopped_mid_section", current=idx + 1, total=total_sections_to_translate)
+                break
+            
+            try:
                 original_text = section["text"]
                 section_type = section["type"]
+                initial_translation_override = section.get("initial_translation_text", "")
+                line_edit_override = section.get("line_edited_text", "")
+                localization_override = section.get("localized_text", "")
                 
                 self._update_translation_progress("translating_section_progress", idx + 1, total_sections_to_translate, current=idx + 1, total=total_sections_to_translate, type=section_type)
 
-                translation_result, stages = self.translator.translate_section(
+                def intermediate_update_callback(stage, text):
+                    self.root.after(0, self._update_section_stage, current_section_index, stage, text)
+
+                translation_results, stages = self.translator.translate_section(
                     section_data=section,
+                    initial_translation_override=initial_translation_override,
+                    line_edit_override=line_edit_override,
+                    localization_override=localization_override,
                     genre=self.genre_var.get(),
                     characters_json_str=json5.dumps(self.characters),
                     cultural_context_json_str=json5.dumps(self.cultural_context),
@@ -739,41 +783,80 @@ class NovelTranslatorApp:
                     progress_callback=lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, idx + 1, total_sections_to_translate, **kwargs),
                     stop_event=self.stop_event,
                     max_retries=max_retries,
-                    user_defined_terms=user_defined_terms
+                    user_defined_terms=user_defined_terms,
+                    intermediate_callback=intermediate_update_callback
                 )
 
                 if self.stop_event.is_set():
                     self._update_translation_progress("log_translation_process_stopped_mid_section", current=idx + 1, total=total_sections_to_translate)
                     break
                 
-                section["translated_text"] = translation_result
-                section["translation_successful"] = True 
-
+                # Çeviri aşamalarının sonuçlarını kaydet
+                section["initial_translation_text"] = translation_results.get("initial", "")
+                section["line_edited_text"] = translation_results.get("edited", "")
+                section["localized_text"] = translation_results.get("final", "")
+                final_translation = translation_results.get("final", "")
+                
+                # Sadece çeviri durdurulmadıysa ve başarılıysa bölümü güncelle
+                if not self.stop_event.is_set() and final_translation:
+                    section["translated_text"] = final_translation
+                    section["translation_successful"] = True
+                    back_translated = ""
+                    if final_translation and final_translation != original_text:
+                        back_translated = self.translator.back_translate(
+                            final_translation, self.available_languages[self.target_language_var.get()],
+                            self.analyzer.get_detected_language(),
+                            lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, idx + 1, total_sections_to_translate, **kwargs),
+                            max_retries=max_retries
+                        )
+                    section["back_translated_text"] = back_translated
+                    self.root.after(0, self._append_translated_chapter, original_text, final_translation, back_translated)
+                else:
+                    # Çeviri durdurulduysa veya başarısızsa, başarı durumunu false yap
+                    section["translation_successful"] = False
                 back_translated = ""
-                if translation_result and translation_result != original_text:
+                if final_translation and final_translation != original_text:
                     back_translated = self.translator.back_translate(
-                        translation_result, self.available_languages[self.target_language_var.get()],
+                        final_translation, self.available_languages[self.target_language_var.get()],
                         self.analyzer.get_detected_language(),
-                        lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, idx + 1, total_sections_to_translate, **kwargs)
+                        lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, idx + 1, total_sections_to_translate, **kwargs),
+                        max_retries=max_retries
                     )
                 section["back_translated_text"] = back_translated
                 
-                self.root.after(0, self._append_translated_chapter, original_text, translation_result, back_translated)
+                self.root.after(0, self._append_translated_chapter, original_text, final_translation, back_translated)
                 
-                progress_percent = ((idx + 1) / total_sections_to_translate) * 100
-                self.progress_var.set(progress_percent)
-                self._update_translation_progress("section_completed_progress", idx + 1, total_sections_to_translate, current=idx + 1, total=total_sections_to_translate)
-                
+                # "Bölümleri Düzenle" penceresi açıksa, UI'ı güncelle
                 if hasattr(self, 'section_window_widget') and self.section_window_widget.winfo_exists():
                     self.root.after(0, self.update_section_listbox)
-        except Exception as e:
-            self._update_translation_progress("translation_error_progress", 0, 0, error=str(e))
-        finally:
-            if not self.stop_event.is_set(): 
-                self.status_var.set(lang_texts.get("translation_complete_status", "Translation complete."))
-                self.progress_var.set(100)
-                messagebox.showinfo(lang_texts.get("translation_complete_title", "Translation Complete"), lang_texts.get("translation_complete_message", "The translation process has finished."))
-                self._update_translation_progress("log_translation_process_finished")
+                    # Seçili olan bölüm şu an çevrilen bölümse, metin kutularını da yenile
+                    try:
+                        selected_item = self.section_tree.selection()[0]
+                        selected_index = int(selected_item)
+                        if selected_index == current_section_index:
+                            self.root.after(0, self.on_section_select, None)
+                    except (IndexError, tk.TclError):
+                        # Seçim yoksa veya pencere kapatılmışsa hata oluşabilir
+                        pass
+                
+            except Exception as e:
+                section["translation_successful"] = False
+                section["translated_text"] = f"HATA: {e}"
+                self._update_translation_progress("translation_error_progress", current_section=idx + 1, total_sections=total_sections_to_translate, error=str(e))
+                if hasattr(self, 'section_window_widget') and self.section_window_widget.winfo_exists():
+                    self.root.after(0, self.update_section_listbox)
+
+            finally:
+                if not self.stop_event.is_set():
+                    progress_percent = ((idx + 1) / total_sections_to_translate) * 100
+                    self.progress_var.set(progress_percent)
+                    self._update_translation_progress("section_completed_progress", idx + 1, total_sections_to_translate, current=idx + 1, total=total_sections_to_translate)
+
+        if not self.stop_event.is_set():
+            self.status_var.set(lang_texts.get("translation_complete_status", "Translation complete."))
+            self.progress_var.set(100)
+            messagebox.showinfo(lang_texts.get("translation_complete_title", "Translation Complete"), lang_texts.get("translation_complete_message", "The translation process has finished."))
+            self._update_translation_progress("log_translation_process_finished")
 
     def _update_translation_progress(self, message_key_or_raw_message, current_section=0, total_sections=0, **format_args):
         lang_texts = self.ui_texts.get(self.current_app_language, self.ui_texts.get("en", {}))
@@ -783,10 +866,10 @@ class NovelTranslatorApp:
         try:
             final_processed_message = message_template.format(**format_args)
         except KeyError as e: 
-            print(f"Warning: Formatting KeyError for message key '{message_key_or_raw_message}': {e}. Using raw template/key.")
+            logger.warning(f"Formatting KeyError for message key '{message_key_or_raw_message}': {e}. Using raw template/key.")
             final_processed_message = message_template 
         except Exception as e:
-            print(f"Warning: General formatting error for message key '{message_key_or_raw_message}': {e}. Using raw template/key.")
+            logger.warning(f"General formatting error for message key '{message_key_or_raw_message}': {e}. Using raw template/key.")
             final_processed_message = message_template
 
         final_processed_message = final_processed_message.strip()
@@ -813,7 +896,7 @@ class NovelTranslatorApp:
             self.progress_text.config(state='disabled')
         else:
             # Fallback if progress_text is not yet initialized (e.g., during early __init__)
-            print(message_for_log_area)
+            logger.info(message_for_log_area)
         
         if self.status_var:
             if total_sections > 0 and current_section > 0 and current_section <= total_sections:
@@ -848,13 +931,23 @@ class NovelTranslatorApp:
     def _run_single_translation_in_background(self, section_index):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
         section = self.novel_sections[section_index]
-        original_text = section["text"]
         
         self._update_translation_progress("translating_section_progress", section_index + 1, len(self.novel_sections), current=section_index + 1, total=len(self.novel_sections), type=section["type"])
 
         try:
-            translation_result, stages = self.translator.translate_section(
+            original_text = section["text"]
+            initial_translation_override = section.get("initial_translation_text", "")
+            line_edit_override = section.get("line_edited_text", "")
+            localization_override = section.get("localized_text", "")
+
+            def intermediate_update_callback(stage, text):
+                self.root.after(0, self._update_section_stage, section_index, stage, text)
+
+            translation_results, stages = self.translator.translate_section(
                 section_data=section,
+                initial_translation_override=initial_translation_override,
+                line_edit_override=line_edit_override,
+                localization_override=localization_override,
                 genre=self.genre_var.get(),
                 characters_json_str=json5.dumps(self.characters),
                 cultural_context_json_str=json5.dumps(self.cultural_context),
@@ -866,35 +959,103 @@ class NovelTranslatorApp:
                 progress_callback=lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, **kwargs),
                 stop_event=self.stop_event,
                 max_retries=self.retries_var.get(),
-                user_defined_terms=self.user_defined_terms
+                user_defined_terms=self.user_defined_terms,
+                intermediate_callback=intermediate_update_callback
             )
 
-            section["translated_text"] = translation_result
-            section["translation_successful"] = True
+            # Çeviri aşamalarının sonuçlarını kaydet
+            section["initial_translation_text"] = translation_results.get("initial", "")
+            section["line_edited_text"] = translation_results.get("edited", "")
+            section["localized_text"] = translation_results.get("final", "")
+            final_translation = translation_results.get("final", "")
 
+            # Sadece çeviri durdurulmadıysa ve başarılıysa bölümü güncelle
+            if not self.stop_event.is_set() and final_translation:
+                section["translated_text"] = final_translation
+                section["translation_successful"] = True
+                back_translated = ""
+                if final_translation and final_translation != original_text:
+                    back_translated = self.translator.back_translate(
+                        final_translation, self.available_languages[self.target_language_var.get()],
+                        self.analyzer.get_detected_language(),
+                        lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, **kwargs),
+                        max_retries=self.retries_var.get()
+                    )
+                section["back_translated_text"] = back_translated
+            else:
+                # Çeviri durdurulduysa veya başarısızsa, başarı durumunu false yap
+                section["translation_successful"] = False
             back_translated = ""
-            if translation_result and translation_result != original_text:
+            if final_translation and final_translation != original_text:
                 back_translated = self.translator.back_translate(
-                    translation_result, self.available_languages[self.target_language_var.get()],
+                    final_translation, self.available_languages[self.target_language_var.get()],
                     self.analyzer.get_detected_language(),
-                    lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, **kwargs)
+                    lambda msg_key_or_raw, **kwargs: self._update_translation_progress(msg_key_or_raw, **kwargs),
+                    max_retries=self.retries_var.get()
                 )
             section["back_translated_text"] = back_translated
 
             def update_ui():
-                self.on_section_select(None) 
-                self.update_section_listbox()
-                messagebox.showinfo(lang_texts.get("translation_complete_title", "Translation Complete"), 
-                                    lang_texts.get("section_translation_complete_message", "Section {index} has been translated.").format(index=section_index + 1))
+                # Pencerenin hala var olup olmadığını kontrol et
+                if hasattr(self, 'section_window_widget') and self.section_window_widget.winfo_exists():
+                    self.update_section_listbox()
+                # Sadece çeviri durdurulmadıysa başarı mesajı göster
+                if not self.stop_event.is_set():
+                    messagebox.showinfo(lang_texts.get("translation_complete_title", "Translation Complete"), 
+                                        lang_texts.get("section_translation_complete_message", "Section {index} has been translated.").format(index=section_index + 1))
 
             self.root.after(0, update_ui)
 
         except Exception as e:
             section["translation_successful"] = False
+            section["translated_text"] = f"HATA: {e}"
             self._update_translation_progress("translation_error_progress", error=str(e))
-            messagebox.showerror(lang_texts.get("translation_error_title", "Translation Error"), str(e))
+            if hasattr(self, 'section_window_widget') and self.section_window_widget.winfo_exists():
+                self.root.after(0, self.update_section_listbox)
         finally:
             self._update_translation_progress("section_completed_progress", current=section_index + 1, total=len(self.novel_sections))
+
+    def _update_section_stage(self, section_index, stage, text):
+        """
+        Belirli bir bölümün çeviri aşamasını günceller ve arayüzü yeniler.
+        """
+        if section_index < 0 or section_index >= len(self.novel_sections):
+            return
+
+        stage_map = {
+            "initial": "initial_translation_text",
+            "edited": "line_edited_text",
+            "final": "localized_text"
+        }
+        
+        widget_map = {
+            "initial": "initial_translation_section_text",
+            "edited": "line_edit_section_text",
+            "final": "localization_section_text"
+        }
+
+        if stage in stage_map:
+            # Veri modelini güncelle
+            self.novel_sections[section_index][stage_map[stage]] = text
+            if stage == "final":
+                 self.novel_sections[section_index]["translated_text"] = text
+
+        # "Bölümleri Düzenle" penceresi açıksa ve doğru bölüm seçiliyse, arayüzü güncelle
+        if hasattr(self, 'section_window_widget') and self.section_window_widget.winfo_exists():
+            try:
+                selected_item = self.section_tree.selection()[0]
+                if int(selected_item) == section_index:
+                    # İlgili metin kutusunu doğrudan güncelle
+                    if stage in widget_map and hasattr(self, widget_map[stage]):
+                        widget = getattr(self, widget_map[stage])
+                        widget.delete("1.0", tk.END)
+                        widget.insert("1.0", text)
+                    # Son aşama tamamlandıysa, nihai çeviri sekmesini de güncelle
+                    if stage == "final" and hasattr(self, 'translated_section_text'):
+                        self.translated_section_text.delete("1.0", tk.END)
+                        self.translated_section_text.insert("1.0", text)
+            except (IndexError, tk.TclError):
+                pass # Seçim yoksa veya pencere kapatılmışsa devam et
             
     def save_translation(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1012,7 +1173,13 @@ class NovelTranslatorApp:
         
         ttk.Label(self.char_basic_frame_tab, text=lang_texts.get("role_label","Role:")).grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
         self.char_role_var = tk.StringVar()
-        role_combo = ttk.Combobox(self.char_basic_frame_tab, textvariable=self.char_role_var, values=["Ana Karakter", "Yan Karakter", "Belirtilen Karakter"], state="readonly")
+        
+        self.role_values = [
+            lang_texts.get("char_role_main", "Main Character"),
+            lang_texts.get("char_role_side", "Side Character"),
+            lang_texts.get("char_role_mentioned", "Mentioned Character")
+        ]
+        role_combo = ttk.Combobox(self.char_basic_frame_tab, textvariable=self.char_role_var, values=self.role_values, state="readonly")
         role_combo.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
         
         ttk.Label(self.char_basic_frame_tab, text=lang_texts.get("mentions_label","Mentions:")).grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
@@ -1090,7 +1257,14 @@ class NovelTranslatorApp:
 
         ttk.Label(self.char_development_frame_tab, text=lang_texts.get("character_arc_type_label","Arc Type:")).grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
         self.char_arc_type_var = tk.StringVar()
-        arc_type_combo = ttk.Combobox(self.char_development_frame_tab, textvariable=self.char_arc_type_var, values=["Klasik", "Trajik", "Düz", "Dairesel"], state="readonly")
+        
+        self.arc_type_values = [
+            lang_texts.get("char_arc_classic", "Classic"),
+            lang_texts.get("char_arc_tragic", "Tragic"),
+            lang_texts.get("char_arc_flat", "Flat"),
+            lang_texts.get("char_arc_circular", "Circular")
+        ]
+        arc_type_combo = ttk.Combobox(self.char_development_frame_tab, textvariable=self.char_arc_type_var, values=self.arc_type_values, state="readonly")
         arc_type_combo.grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
         
         self.char_examples_frame_tab = ttk.Frame(self.char_notebook_widget)
@@ -1730,14 +1904,19 @@ class NovelTranslatorApp:
         self.sections_list_frame_widget = ttk.LabelFrame(main_frame, text=lang_texts.get("sections_label", "Sections"), padding="5")
         self.sections_list_frame_widget.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5), anchor='n')
 
-        self.section_tree = ttk.Treeview(self.sections_list_frame_widget, columns=("type", "translated"), show="headings")
+        scrollbar = ttk.Scrollbar(self.sections_list_frame_widget, orient="vertical")
+        self.section_tree = ttk.Treeview(self.sections_list_frame_widget, columns=("type", "translated"), show="headings", yscrollcommand=scrollbar.set)
+        scrollbar.config(command=self.section_tree.yview)
+
         self.section_tree.heading("#0", text="#")
         self.section_tree.heading("type", text=lang_texts.get("section_type_header", "Type"))
         self.section_tree.heading("translated", text=lang_texts.get("translated_status_header", "Translated"))
         self.section_tree.column("#0", width=40, anchor='center')
         self.section_tree.column("type", width=150)
         self.section_tree.column("translated", width=80, anchor='center')
-        self.section_tree.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.section_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.section_edit_frame_widget = ttk.LabelFrame(main_frame, text=lang_texts.get("section_content_label", "Content"), padding="5")
         self.section_edit_frame_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1748,8 +1927,14 @@ class NovelTranslatorApp:
         self.original_tab = ttk.Frame(self.section_notebook)
         self.translated_tab = ttk.Frame(self.section_notebook)
         self.back_translation_tab = ttk.Frame(self.section_notebook)
+        self.initial_translation_tab = ttk.Frame(self.section_notebook)
+        self.line_edit_tab = ttk.Frame(self.section_notebook)
+        self.localization_tab = ttk.Frame(self.section_notebook)
 
         self.section_notebook.add(self.original_tab, text=lang_texts.get("original_content_tab", "Original"))
+        self.section_notebook.add(self.initial_translation_tab, text=lang_texts.get("initial_translation_optional_tab", "Initial Translation (Optional)"))
+        self.section_notebook.add(self.line_edit_tab, text=lang_texts.get("line_edit_optional_tab", "Line Edit (Optional)"))
+        self.section_notebook.add(self.localization_tab, text=lang_texts.get("localization_optional_tab", "Localization (Optional)"))
         self.section_notebook.add(self.translated_tab, text=lang_texts.get("translated_content_tab", "Translated"))
         self.section_notebook.add(self.back_translation_tab, text=lang_texts.get("back_translation_content_tab", "Back-Translation"))
 
@@ -1759,6 +1944,12 @@ class NovelTranslatorApp:
         self.translated_section_text.pack(fill=tk.BOTH, expand=True)
         self.back_translated_section_text = scrolledtext.ScrolledText(self.back_translation_tab, wrap=tk.WORD, width=60, height=30)
         self.back_translated_section_text.pack(fill=tk.BOTH, expand=True)
+        self.initial_translation_section_text = scrolledtext.ScrolledText(self.initial_translation_tab, wrap=tk.WORD, width=60, height=30)
+        self.initial_translation_section_text.pack(fill=tk.BOTH, expand=True)
+        self.line_edit_section_text = scrolledtext.ScrolledText(self.line_edit_tab, wrap=tk.WORD, width=60, height=30)
+        self.line_edit_section_text.pack(fill=tk.BOTH, expand=True)
+        self.localization_section_text = scrolledtext.ScrolledText(self.localization_tab, wrap=tk.WORD, width=60, height=30)
+        self.localization_section_text.pack(fill=tk.BOTH, expand=True)
 
         button_frame = ttk.Frame(self.section_edit_frame_widget)
         button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
@@ -1769,6 +1960,8 @@ class NovelTranslatorApp:
         self.section_window_widget.delete_button.pack(side=tk.LEFT, padx=5)
         self.section_window_widget.save_button = ttk.Button(button_frame, text=lang_texts.get("save_changes_button", "Save Changes"), command=self.save_sections)
         self.section_window_widget.save_button.pack(side=tk.LEFT, padx=5)
+        self.section_window_widget.mark_translated_button = ttk.Button(button_frame, text=lang_texts.get("mark_as_translated_button", "Mark as Translated"), command=self.mark_section_as_translated)
+        self.section_window_widget.mark_translated_button.pack(side=tk.LEFT, padx=5)
         self.section_window_widget.translate_button = ttk.Button(button_frame, text=lang_texts.get("translate_button", "Translate"), command=self.translate_single_section)
         self.section_window_widget.translate_button.pack(side=tk.LEFT, padx=5)
         self.section_window_widget.export_button = ttk.Button(button_frame, text=lang_texts.get("export_button", "Export"), command=self.export_sections)
@@ -1785,7 +1978,15 @@ class NovelTranslatorApp:
         self.section_tree.delete(*self.section_tree.get_children())
         for i, section in enumerate(self.novel_sections):
             section_type = section.get("type", lang_texts.get("unknown_section_type", "Unknown"))
-            is_translated_text = "✓" if section.get("translation_successful") else "✗"
+            
+            translation_status = section.get("translation_successful")
+            if translation_status is True:
+                is_translated_text = "✓"  # Başarılı
+            elif translation_status is False:
+                is_translated_text = "✗"  # Başarısız/Hatalı
+            else:
+                is_translated_text = ""   # Henüz çevrilmemiş
+            
             self.section_tree.insert("", "end", iid=i, text=str(i + 1), values=(section_type, is_translated_text))
 
     def on_section_select(self, event):
@@ -1801,6 +2002,12 @@ class NovelTranslatorApp:
         self.translated_section_text.insert("1.0", section.get("translated_text", ""))
         self.back_translated_section_text.delete("1.0", tk.END)
         self.back_translated_section_text.insert("1.0", section.get("back_translated_text", ""))
+        self.initial_translation_section_text.delete("1.0", tk.END)
+        self.initial_translation_section_text.insert("1.0", section.get("initial_translation_text", ""))
+        self.line_edit_section_text.delete("1.0", tk.END)
+        self.line_edit_section_text.insert("1.0", section.get("line_edited_text", ""))
+        self.localization_section_text.delete("1.0", tk.END)
+        self.localization_section_text.insert("1.0", section.get("localized_text", ""))
 
     def add_section(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -1809,7 +2016,10 @@ class NovelTranslatorApp:
             "text": "",
             "translation_successful": False,
             "translated_text": "",
-            "back_translated_text": ""
+            "back_translated_text": "",
+            "initial_translation_text": "",
+            "line_edited_text": "",
+            "localized_text": ""
         }
         self.novel_sections.append(new_section)
         self.update_section_listbox()
@@ -1831,6 +2041,9 @@ class NovelTranslatorApp:
         self.section_text.delete("1.0", tk.END)
         self.translated_section_text.delete("1.0", tk.END)
         self.back_translated_section_text.delete("1.0", tk.END)
+        self.initial_translation_section_text.delete("1.0", tk.END)
+        self.line_edit_section_text.delete("1.0", tk.END)
+        self.localization_section_text.delete("1.0", tk.END)
         self._update_translation_progress("log_section_deleted", index=index + 1)
 
     def save_sections(self):
@@ -1843,22 +2056,33 @@ class NovelTranslatorApp:
         self.novel_sections[index]["text"] = self.section_text.get("1.0", tk.END).strip()
         self.novel_sections[index]["translated_text"] = self.translated_section_text.get("1.0", tk.END).strip()
         self.novel_sections[index]["back_translated_text"] = self.back_translated_section_text.get("1.0", tk.END).strip()
+        self.novel_sections[index]["initial_translation_text"] = self.initial_translation_section_text.get("1.0", tk.END).strip()
+        self.novel_sections[index]["line_edited_text"] = self.line_edit_section_text.get("1.0", tk.END).strip()
+        self.novel_sections[index]["localized_text"] = self.localization_section_text.get("1.0", tk.END).strip()
         messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("changes_saved_message", "Changes saved!"))
         self._update_translation_progress("log_section_changes_saved", index=index + 1)
 
     def translate_single_section(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
-        if not self.section_tree.selection():
+        
+        self.stop_event.clear() # Her yeni işlemde olayı temizle
+
+        if not hasattr(self, 'section_window_widget') or not self.section_window_widget.winfo_exists():
+            messagebox.showerror(lang_texts.get("error_message_box_title", "Error"), lang_texts.get("section_editor_closed_error", "The section editor window is closed. Please reopen it to translate a single section."))
+            return
+
+        try:
+            if not self.section_tree.selection():
+                messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("select_section_to_translate_warning", "Please select a section to translate!"))
+                return
+            selected_item = self.section_tree.selection()[0]
+            index = int(selected_item)
+        except (IndexError, tk.TclError):
             messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("select_section_to_translate_warning", "Please select a section to translate!"))
             return
-        selected_item = self.section_tree.selection()[0]
-        index = int(selected_item)
 
-        # Değişiklikleri çevirmeden hemen önce kaydet
-        self.novel_sections[index]["text"] = self.section_text.get("1.0", tk.END).strip()
-        self.novel_sections[index]["translated_text"] = self.translated_section_text.get("1.0", tk.END).strip()
-        self.novel_sections[index]["back_translated_text"] = self.back_translated_section_text.get("1.0", tk.END).strip()
-        self._update_translation_progress("log_section_changes_saved", index=index + 1)
+        # Otomatik kaydetmeyi kaldırarak kullanıcının manuel olarak kaydetmesini sağlıyoruz.
+        # self.save_sections() 
         
         threading.Thread(target=self._run_single_translation_in_background, args=(index,), daemon=True).start()
 
@@ -1874,6 +2098,24 @@ class NovelTranslatorApp:
                 self._update_translation_progress("log_export_sections_success", filename=os.path.basename(file_path))
             except Exception as e:
                 self._update_translation_progress("log_export_sections_error", error=str(e))
+
+    def mark_section_as_translated(self):
+        lang_texts = self.ui_texts.get(self.current_app_language, {})
+        if not self.section_tree.selection():
+            messagebox.showwarning(lang_texts.get("warning_message_box_title", "Warning"), lang_texts.get("select_section_warning", "Please select a section!"))
+            return
+        
+        selected_item = self.section_tree.selection()[0]
+        index = int(selected_item)
+        
+        self.save_sections() 
+        
+        self.novel_sections[index]["translation_successful"] = True
+        
+        self.update_section_listbox()
+        
+        messagebox.showinfo(lang_texts.get("info_message_box_title", "Info"), lang_texts.get("mark_as_translated_success_message", "Section marked as translated."))
+        self._update_translation_progress("log_section_marked_translated", index=index + 1)
 
     def import_sections(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
@@ -2126,6 +2368,51 @@ class NovelTranslatorApp:
         text_area.config(state='disabled')
         self.style_guide_viewer_window_widget.close_button = ttk.Button(frame, text=lang_texts.get("close_button", "Close"), command=self.style_guide_viewer_window_widget.destroy)
         self.style_guide_viewer_window_widget.close_button.pack(pady=10)
+
+    def show_log_viewer(self):
+        lang_texts = self.ui_texts.get(self.current_app_language, {})
+        self._update_translation_progress("log_viewer_opened")
+        
+        self.log_viewer_window = tk.Toplevel(self.root)
+        self.log_viewer_window.title(lang_texts.get("log_viewer_title", "Application Logs"))
+        self.log_viewer_window.geometry("800x600")
+
+        frame = ttk.Frame(self.log_viewer_window, padding="10")
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        self.log_text_area = scrolledtext.ScrolledText(frame, wrap=tk.WORD, width=90, height=30)
+        self.log_text_area.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        def refresh_logs():
+            try:
+                with open("app.log", "r", encoding="utf-8") as f:
+                    logs = f.read()
+                self.log_text_area.config(state='normal')
+                self.log_text_area.delete(1.0, tk.END)
+                self.log_text_area.insert(tk.END, logs)
+                self.log_text_area.see(tk.END)
+                self.log_text_area.config(state='disabled')
+            except FileNotFoundError:
+                self.log_text_area.config(state='normal')
+                self.log_text_area.delete(1.0, tk.END)
+                self.log_text_area.insert(tk.END, lang_texts.get("log_file_not_found", "Log file 'app.log' not found."))
+                self.log_text_area.config(state='disabled')
+            except Exception as e:
+                self.log_text_area.config(state='normal')
+                self.log_text_area.delete(1.0, tk.END)
+                self.log_text_area.insert(tk.END, f"{lang_texts.get('log_file_read_error', 'Error reading log file')}: {e}")
+                self.log_text_area.config(state='disabled')
+
+        button_frame = ttk.Frame(frame)
+        button_frame.pack(fill=tk.X)
+
+        self.log_viewer_window.refresh_button = ttk.Button(button_frame, text=lang_texts.get("refresh_button", "Refresh"), command=refresh_logs)
+        self.log_viewer_window.refresh_button.pack(side=tk.LEFT, padx=5)
+
+        self.log_viewer_window.close_button = ttk.Button(button_frame, text=lang_texts.get("close_button", "Close"), command=self.log_viewer_window.destroy)
+        self.log_viewer_window.close_button.pack(side=tk.LEFT, padx=5)
+
+        refresh_logs() # Initial load
 
     def show_user_terms_editor(self):
         lang_texts = self.ui_texts.get(self.current_app_language, {})
